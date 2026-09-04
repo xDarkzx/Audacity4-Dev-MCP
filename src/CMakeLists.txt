@@ -47,6 +47,8 @@ add_subdirectory(spectrogram)
 
 add_subdirectory(automation)
 
+add_subdirectory(mcp)
+
 add_subdirectory(extensions/native)
 add_subdirectory(trackedit)
 

@@ -190,6 +190,20 @@ public:
         0,
         NRC_COUNT - 1 };
 
+    //! NOTE mDoProfile was not previously exposed as an automation parameter -
+    //! the only existing caller that sets it (NoiseReductionViewModel::getNoiseProfile(),
+    //! a QML-dialog-only button) does nothing more than set this flag true and call
+    //! Process(), so exposing it here is a complete, correct way to make profile
+    //! capture reachable through the same performEffect(id, params) path every
+    //! other effect already uses - not a partial/hacky workaround.
+    static constexpr EffectParameter doProfile {
+        &NoiseReductionSettings::mDoProfile,
+        L"GetProfile",
+        false,
+        false,
+        true,
+        1 };
+
     class Statistics
     {
     public:

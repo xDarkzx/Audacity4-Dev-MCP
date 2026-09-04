@@ -13,6 +13,7 @@
 #include "framework/draw/drawmodule.h"
 #include "framework/actions/actionsmodule.h"
 #include "framework/rcommand/rcommandmodule.h"
+#include "framework/rcontrol/rcontrolmodule.h"
 #include "framework/audioplugins/audiopluginsmodule.h"
 #include "framework/interactive/interactivemodule.h"
 #include "framework/ui/uimodule.h"
@@ -67,6 +68,7 @@
 #include "stubs/usageinfo/usageinfostubmodule.h"
 #endif
 #include "automation/automationmodule.h"
+#include "mcp/mcpmodule.h"
 
 #if AU_MODULE_EFFECTS_NYQUIST
 #include "effects/nyquist/nyquisteffectsmodule.h"
@@ -138,6 +140,7 @@ std::shared_ptr<muse::IApplication> AppFactory::newGuiApp(const std::shared_ptr<
     app->addModule(new muse::audioplugins::AudioPluginsModule());
     app->addModule(new muse::actions::ActionsModule());
     app->addModule(new muse::rcommand::RCommandModule());
+    app->addModule(new muse::rcontrol::RControlModule());
     app->addModule(new muse::draw::DrawModule());
     app->addModule(new muse::workspace::WorkspaceModule());
     app->addModule(new muse::accessibility::AccessibilityModule());
@@ -189,6 +192,7 @@ std::shared_ptr<muse::IApplication> AppFactory::newGuiApp(const std::shared_ptr<
     app->addModule(new au::effects::BuiltinEffectsModule());
     app->addModule(new au::effects::BuiltinEffectsCollectionModule());
     app->addModule(new au::automation::AutomationModule());
+    app->addModule(new au::mcp::McpModule());
 
     return app;
 }

@@ -274,7 +274,7 @@ MyTransformer::MyWindow::~MyWindow()
 const EffectParameterMethods& NoiseReductionEffect::Parameters() const
 {
     static CapturedParameters<NoiseReductionEffect,
-                              sensitivity, frequencySmoothingBands, noiseGain, noiseReductionChoice> parameters;
+                              sensitivity, frequencySmoothingBands, noiseGain, noiseReductionChoice, doProfile> parameters;
     return parameters;
 }
 

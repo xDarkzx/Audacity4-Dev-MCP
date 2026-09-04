@@ -112,6 +112,7 @@ list(REMOVE_ITEM LINK_LIB
 add_to_link_if_exists(muse::accessibility)
 add_to_link_if_exists(muse::actions)
 add_to_link_if_exists(muse::rcommand)
+add_to_link_if_exists(muse::rcontrol)
 add_to_link_if_exists(muse::audioplugins)
 add_to_link_if_exists(muse::cloud_qml)
 add_to_link_if_exists(muse::cloud)
@@ -162,6 +163,7 @@ add_to_link_if_exists(record)
 add_to_link_if_exists(spectrogram)
 add_to_link_if_exists(usageinfo)
 add_to_link_if_exists(automation)
+add_to_link_if_exists(mcp)
 
 set (AUDACITY_APPEND_SRC)
 
