@@ -995,7 +995,36 @@ muse::Ret ProjectActionsController::openProject(const muse::io::path_t& path, co
 
     //! Step 4. Check, if a any project is already open in the current window,
     //! then create a new instance
-    if (globalContext()->currentProject()) {
+    if (IAudacityProjectPtr current = globalContext()->currentProject()) {
+        //! NOTE If the current window's project is still a blank, newly-created,
+        //! empty project with no audio content (the common state right after
+        //! auto-restoring a previous session's leftover empty project at
+        //! startup), reuse this window instead of spawning a new OS-level one.
+        //! Spawning a new window/context here has been confirmed via live
+        //! crash reproduction to be unsafe in this dev build - independent
+        //! subsystems (module registration in src/mcp/mcpmodule.cpp, and the
+        //! waveform bitmap cache in au3-wave-track-paint) crash when a second
+        //! context gets created this way, most often triggered automatically
+        //! at startup when several stale auto-restored sessions get opened in
+        //! sequence. This mirrors the existing, already-safe pattern below in
+        //! newProject() for the same situation (isHasWindowWithoutProject()).
+        //!
+        //! NOTE hasUnsavedChanges() is deliberately NOT used here - it is
+        //! hard-coded to always return true whenever isNewlyCreated() is true
+        //! (see Audacity4Project::needSave()), regardless of whether the
+        //! project actually contains anything, so it can't distinguish a
+        //! genuinely empty restored project from one with real unsaved work.
+        //! hasAudioContent() is the actual signal for that (confirmed live:
+        //! the hasUnsavedChanges()-based check below never triggered, since
+        //! it's true unconditionally for every newly-created project).
+        const au::trackedit::ITrackeditProjectPtr currentTrackedit = current->trackeditProject();
+        const bool currentIsEmpty = currentTrackedit && !currentTrackedit->hasAudioContent().val;
+        if (current->isNewlyCreated() && currentIsEmpty) {
+            LOGD() << "[project] Reusing current window for blank, newly-created project (incoming: " << actualPath.toString() << ")";
+            current->close();
+            return doOpenProject(actualPath);
+        }
+
         QStringList args;
         args << actualPath.toQString();
 

@@ -53,12 +53,17 @@ void McpModuleContext::onInit(const muse::IApplication::RunMode& mode)
         return;
     }
 
+    if (m_initialized) {
+        return;
+    }
+
     auto commandsRegister = globalIoc()->resolve<muse::rcommand::ICommandsRegister>(mname);
     if (commandsRegister) {
         commandsRegister->reg(std::make_shared<AudacityCommandsRegister>());
     }
 
     m_commandsController->init();
+    m_initialized = true;
 }
 
 void McpModuleContext::onDeinit()

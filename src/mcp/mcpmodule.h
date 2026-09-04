@@ -49,6 +49,7 @@ public:
 
 private:
     std::shared_ptr<AudacityCommandsController> m_commandsController;
+    bool m_initialized = false;
 };
 }
 
