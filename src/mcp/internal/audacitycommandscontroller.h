@@ -36,7 +36,14 @@
 #include "trackedit/itrackeditinteraction.h"
 #include "trackedit/iselectioncontroller.h"
 #include "effects/effects_base/ieffectexecutionscenario.h"
+#include "effects/effects_base/ieffectsprovider.h"
+#include "effects/effects_base/irealtimeeffectservice.h"
+#include "effects/effects_base/ieffectparametersprovider.h"
+#include "effects/effects_base/ieffectinstancesregister.h"
+#include "effects/effects_base/ieffectpresetsprovider.h"
 #include "importexport/export/iexporter.h"
+#include "importexport/import/iimporter.h"
+#include "playback/itrackplaybackcontrol.h"
 #include "framework/global/io/ifilesystem.h"
 
 namespace au::mcp {
@@ -60,7 +67,14 @@ public:
     muse::ContextInject<au::trackedit::ITrackeditInteraction> trackeditInteraction { this };
     muse::ContextInject<au::trackedit::ISelectionController> selectionController { this };
     muse::ContextInject<au::effects::IEffectExecutionScenario> effectExecutionScenario { this };
+    muse::GlobalInject<au::effects::IEffectsProvider> effectsProvider;
+    muse::ContextInject<au::effects::IRealtimeEffectService> realtimeEffectService { this };
+    muse::ContextInject<au::effects::IEffectParametersProvider> effectParametersProvider { this };
+    muse::GlobalInject<au::effects::IEffectInstancesRegister> effectInstancesRegister;
+    muse::ContextInject<au::effects::IEffectPresetsProvider> effectPresetsProvider { this };
     muse::ContextInject<au::importexport::IExporter> exporter { this };
+    muse::ContextInject<au::importexport::IImporter> importer { this };
+    muse::ContextInject<au::playback::ITrackPlaybackControl> trackPlaybackControl { this };
     muse::GlobalInject<muse::io::IFileSystem> fileSystem;
 
     AudacityCommandsController(const muse::modularity::ContextPtr& ctx)
@@ -88,11 +102,79 @@ private:
     muse::rcommand::Response handleAddLabel(const muse::rcommand::Request& request);
     muse::rcommand::Response handleRemoveLabel(const muse::rcommand::Request& request);
     muse::rcommand::Response handleUpdateLabelText(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleUpdateLabelTime(const muse::rcommand::Request& request);
 
     muse::rcommand::Response handleApplyEffect(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSelectAll(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSelectTime(const muse::rcommand::Request& request);
     muse::rcommand::Response handleExportWav(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSelectNone(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSelectTracks(const muse::rcommand::Request& request);
+
+    muse::rcommand::Response handleTrackAddMono(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackAddStereo(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackRemove(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackSetProperties(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackDuplicate(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackResample(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackMuteAll(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackUnmuteAll(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackMuteOrUnmuteAll(const muse::rcommand::Request& request, bool mute);
+
+    muse::rcommand::Response handleEditCut(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditCopy(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditPaste(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditDelete(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditSplit(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditTrim(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditSilence(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditDuplicate(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditUndo(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditRedo(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditSplitNew(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditSplitCut(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditSplitDelete(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditDisjoin(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleEditJoin(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSelectZeroCrossing(const muse::rcommand::Request& request);
+
+    muse::rcommand::Response handleProjectOpen(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleProjectImport(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleProjectClose(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleProjectSaveAs(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleProjectExport(const muse::rcommand::Request& request);
+
+    muse::rcommand::Response handleTransportRecord(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleCursorSet(const muse::rcommand::Request& request);
+
+    muse::rcommand::Response handleProjectGetInfo(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrackGetInfo(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSelectClip(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTransportGetPlayPosition(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleListEffects(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleAddRealtimeEffect(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleListRealtimeEffects(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleRemoveRealtimeEffect(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSetRealtimeEffectActive(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleListEffectParameters(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSetEffectParameter(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleListEffectPresets(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleApplyEffectPreset(const muse::rcommand::Request& request);
+
+    //! NOTE track_id=-2 addresses the Master bus (IRealtimeEffectService::masterTrackId) -
+    //! valid for all four realtime-effect handlers above, not just per-track ids.
+    au::effects::RealtimeEffectStatePtr realtimeEffectAt(au::trackedit::TrackId trackId, int index) const;
+
+    //! NOTE Returns -1 (an invalid EffectInstanceId) if the state has no
+    //! registered instance yet - always check before using.
+    au::effects::EffectInstanceId realtimeEffectInstanceId(const au::effects::RealtimeEffectStatePtr& state) const;
+
+    //! NOTE Returns the currently selected tracks, or all tracks if none are
+    //! selected (matches how most edit operations should behave: "operate on
+    //! selection, or everything if nothing is specifically selected" would be
+    //! surprising - so this returns an EMPTY list when nothing is selected
+    //! instead, and callers should treat that as an error, not "select all").
+    au::trackedit::TrackIdList selectedOrEmptyTracks() const;
 
     //! NOTE Returns the id of the first label track found, or -1 if there is no
     //! label track (or no open project). v1 only supports a single label track;

@@ -20,6 +20,11 @@
 
 declare_module(mcp)
 
+# Needed for au3-realtime-effects/RealtimeEffectState.h (RealtimeEffectState::GetInstance(),
+# used to resolve an EffectInstanceId for the parameter-tweaking commands) - matches how
+# effects/effects_base links it for the same header.
+set(MODULE_LINK au3wrap)
+
 set(MODULE_SRC
     ${CMAKE_CURRENT_LIST_DIR}/mcpmodule.cpp
     ${CMAKE_CURRENT_LIST_DIR}/mcpmodule.h
@@ -27,6 +32,19 @@ set(MODULE_SRC
     ${CMAKE_CURRENT_LIST_DIR}/internal/audacitycommandsregister.h
     ${CMAKE_CURRENT_LIST_DIR}/internal/audacitycommandscontroller.cpp
     ${CMAKE_CURRENT_LIST_DIR}/internal/audacitycommandscontroller.h
+    )
+
+# audacitycommandscontroller.cpp pulls in au3-realtime-effects/RealtimeEffectState.h
+# (via au3wrap, for RealtimeEffectState::GetInstance()), which transitively includes
+# legacy AU3 headers declaring their own (non-muse) TranslatableString. Unity-merging
+# this file with audacitycommandsregister.cpp - which does `using namespace muse;`
+# and calls TranslatableString(...) unqualified throughout - makes that name
+# ambiguous across the whole merged translation unit. Keep this file out of the
+# Unity blob so its AU3 includes stay isolated.
+set_source_files_properties(
+    ${CMAKE_CURRENT_LIST_DIR}/internal/audacitycommandscontroller.cpp
+    PROPERTIES
+    SKIP_UNITY_BUILD_INCLUSION ON
     )
 
 setup_module()

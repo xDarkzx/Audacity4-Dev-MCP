@@ -39,10 +39,11 @@ TEST_F(AudacityCommandsRegisterTests, ModuleNameIsMcp)
     EXPECT_EQ(m_register.moduleName(), "mcp");
 }
 
-TEST_F(AudacityCommandsRegisterTests, CommandListHasSixteenEntries)
+TEST_F(AudacityCommandsRegisterTests, CommandListHasFortyEightEntries)
 {
-    // new-project is deliberately not listed - see AudacityCommandsController::init()
-    EXPECT_EQ(m_register.commandList().size(), size_t(16));
+    // project-new is registered but restricted to the no-project-open case -
+    // see AudacityCommandsController::handleNewProject()
+    EXPECT_EQ(m_register.commandList().size(), size_t(65));
 }
 
 TEST_F(AudacityCommandsRegisterTests, PlayStopCommandInfoIsPopulated)

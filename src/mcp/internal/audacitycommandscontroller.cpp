@@ -23,9 +23,13 @@
 
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
+#include <cctype>
 
 #include "global/serialization/json.h"
 #include "trackedit/itrackeditproject.h"
+#include "au3-realtime-effects/RealtimeEffectState.h"
+#include "au3-effects/EffectPlugin.h"
 
 using namespace muse;
 using namespace muse::rcommand;
@@ -74,6 +78,16 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/rewind-start"), [this](const Request& request) {
         return handlePlaybackAction(request, ActionQuery("action://playback/rewind-start"), "rewind-start");
     });
+    //! NOTE Deliberately a distinct action from play-stop - confirmed live that
+    //! toggle-play-stop does NOT play from the current selection, it just
+    //! resumes from wherever the last cursor/playback position was (a
+    //! composition of select-time + play-stop was tested and found to start
+    //! playback from t=0 regardless of the selection just set). play-selection
+    //! is PlaybackController's own dedicated action for "play what's currently
+    //! selected" (see playSelectionAction() in playbackcontroller.cpp).
+    registerCommand(Command("command://mcp/play-selection"), [this](const Request& request) {
+        return handlePlaybackAction(request, ActionQuery("action://playback/play-selection"), "play-selection");
+    });
 
     //! NOTE mcp/new-project is intentionally NOT registered here. Live testing found it
     //! triggers a delayed debug-assertion crash in Audacity's own project-replacement code
@@ -107,6 +121,9 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/update-label-text"), [this](const Request& request) {
         return handleUpdateLabelText(request);
     });
+    registerCommand(Command("command://mcp/update-label-time"), [this](const Request& request) {
+        return handleUpdateLabelTime(request);
+    });
 
     registerCommand(Command("command://mcp/apply-effect"), [this](const Request& request) {
         return handleApplyEffect(request);
@@ -121,6 +138,153 @@ void AudacityCommandsController::init()
 
     registerCommand(Command("command://mcp/export-wav"), [this](const Request& request) {
         return handleExportWav(request);
+    });
+
+    registerCommand(Command("command://mcp/select-none"), [this](const Request& request) {
+        return handleSelectNone(request);
+    });
+    registerCommand(Command("command://mcp/select-tracks"), [this](const Request& request) {
+        return handleSelectTracks(request);
+    });
+
+    registerCommand(Command("command://mcp/track-add-mono"), [this](const Request& request) {
+        return handleTrackAddMono(request);
+    });
+    registerCommand(Command("command://mcp/track-add-stereo"), [this](const Request& request) {
+        return handleTrackAddStereo(request);
+    });
+    registerCommand(Command("command://mcp/track-remove"), [this](const Request& request) {
+        return handleTrackRemove(request);
+    });
+    registerCommand(Command("command://mcp/track-set-properties"), [this](const Request& request) {
+        return handleTrackSetProperties(request);
+    });
+    registerCommand(Command("command://mcp/track-duplicate"), [this](const Request& request) {
+        return handleTrackDuplicate(request);
+    });
+    registerCommand(Command("command://mcp/track-resample"), [this](const Request& request) {
+        return handleTrackResample(request);
+    });
+    registerCommand(Command("command://mcp/track-mute-all"), [this](const Request& request) {
+        return handleTrackMuteAll(request);
+    });
+    registerCommand(Command("command://mcp/track-unmute-all"), [this](const Request& request) {
+        return handleTrackUnmuteAll(request);
+    });
+
+    registerCommand(Command("command://mcp/edit-cut"), [this](const Request& request) {
+        return handleEditCut(request);
+    });
+    registerCommand(Command("command://mcp/edit-copy"), [this](const Request& request) {
+        return handleEditCopy(request);
+    });
+    registerCommand(Command("command://mcp/edit-paste"), [this](const Request& request) {
+        return handleEditPaste(request);
+    });
+    registerCommand(Command("command://mcp/edit-delete"), [this](const Request& request) {
+        return handleEditDelete(request);
+    });
+    registerCommand(Command("command://mcp/edit-split"), [this](const Request& request) {
+        return handleEditSplit(request);
+    });
+    registerCommand(Command("command://mcp/edit-trim"), [this](const Request& request) {
+        return handleEditTrim(request);
+    });
+    registerCommand(Command("command://mcp/edit-silence"), [this](const Request& request) {
+        return handleEditSilence(request);
+    });
+    registerCommand(Command("command://mcp/edit-duplicate"), [this](const Request& request) {
+        return handleEditDuplicate(request);
+    });
+    registerCommand(Command("command://mcp/edit-undo"), [this](const Request& request) {
+        return handleEditUndo(request);
+    });
+    registerCommand(Command("command://mcp/edit-redo"), [this](const Request& request) {
+        return handleEditRedo(request);
+    });
+    registerCommand(Command("command://mcp/edit-split-new"), [this](const Request& request) {
+        return handleEditSplitNew(request);
+    });
+    registerCommand(Command("command://mcp/edit-split-cut"), [this](const Request& request) {
+        return handleEditSplitCut(request);
+    });
+    registerCommand(Command("command://mcp/edit-split-delete"), [this](const Request& request) {
+        return handleEditSplitDelete(request);
+    });
+    registerCommand(Command("command://mcp/edit-disjoin"), [this](const Request& request) {
+        return handleEditDisjoin(request);
+    });
+    registerCommand(Command("command://mcp/edit-join"), [this](const Request& request) {
+        return handleEditJoin(request);
+    });
+    registerCommand(Command("command://mcp/select-zero-crossing"), [this](const Request& request) {
+        return handleSelectZeroCrossing(request);
+    });
+
+    registerCommand(Command("command://mcp/project-open"), [this](const Request& request) {
+        return handleProjectOpen(request);
+    });
+    registerCommand(Command("command://mcp/project-import"), [this](const Request& request) {
+        return handleProjectImport(request);
+    });
+    registerCommand(Command("command://mcp/project-close"), [this](const Request& request) {
+        return handleProjectClose(request);
+    });
+    registerCommand(Command("command://mcp/project-save-as"), [this](const Request& request) {
+        return handleProjectSaveAs(request);
+    });
+    registerCommand(Command("command://mcp/project-export"), [this](const Request& request) {
+        return handleProjectExport(request);
+    });
+
+    registerCommand(Command("command://mcp/transport-record"), [this](const Request& request) {
+        return handleTransportRecord(request);
+    });
+    registerCommand(Command("command://mcp/cursor-set"), [this](const Request& request) {
+        return handleCursorSet(request);
+    });
+    registerCommand(Command("command://mcp/project-new"), [this](const Request& request) {
+        return handleNewProject(request);
+    });
+
+    registerCommand(Command("command://mcp/project-get-info"), [this](const Request& request) {
+        return handleProjectGetInfo(request);
+    });
+    registerCommand(Command("command://mcp/track-get-info"), [this](const Request& request) {
+        return handleTrackGetInfo(request);
+    });
+    registerCommand(Command("command://mcp/select-clip"), [this](const Request& request) {
+        return handleSelectClip(request);
+    });
+    registerCommand(Command("command://mcp/transport-get-play-position"), [this](const Request& request) {
+        return handleTransportGetPlayPosition(request);
+    });
+    registerCommand(Command("command://mcp/list-effects"), [this](const Request& request) {
+        return handleListEffects(request);
+    });
+    registerCommand(Command("command://mcp/add-realtime-effect"), [this](const Request& request) {
+        return handleAddRealtimeEffect(request);
+    });
+    registerCommand(Command("command://mcp/list-realtime-effects"), [this](const Request& request) {
+        return handleListRealtimeEffects(request);
+    });
+    registerCommand(Command("command://mcp/remove-realtime-effect"), [this](const Request& request) {
+        return handleRemoveRealtimeEffect(request);
+    });
+    registerCommand(Command("command://mcp/set-realtime-effect-active"), [this](const Request& request) {
+        return handleSetRealtimeEffectActive(request);
+    });
+    registerCommand(Command("command://mcp/list-effect-parameters"), [this](const Request& request) {
+        return handleListEffectParameters(request);
+    });
+    registerCommand(Command("command://mcp/set-effect-parameter"), [this](const Request& request) {
+        return handleSetEffectParameter(request);
+    });
+    registerCommand(Command("command://mcp/list-effect-presets"), [this](const Request& request) {
+        return handleListEffectPresets(request);
+    });
+    registerCommand(Command("command://mcp/apply-effect-preset"), [this](const Request& request) {
+        return handleApplyEffectPreset(request);
     });
 }
 
@@ -169,6 +333,19 @@ Response AudacityCommandsController::handlePlaybackAction(const Request& request
 
 Response AudacityCommandsController::handleNewProject(const Request& request)
 {
+    //! NOTE ProjectActionsController::newProject() only creates the project in the current
+    //! window when no project is currently open; if one is already open it spawns a whole new
+    //! OS-level window via multiwindowsProvider(), which is not safe to trigger headlessly here.
+    //! So this command is restricted to the no-project-open case - use project-open/project-import
+    //! to bring in another project instead of calling this while one is already open.
+    if (hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("A project is already open - creating a new one here would open "
+                                                              "a new application window instead of replacing it, which isn't "
+                                                              "safe to trigger over MCP. Close the current project first, or "
+                                                              "use project-open/project-import instead.")));
+    }
+
     stopPlaybackIfRunning();
 
     dispatcher()->dispatch(ActionCode("file-new"));
@@ -289,6 +466,77 @@ static au::trackedit::LabelKey parseLabelKey(const std::string& key)
 static std::string labelKeyToString(const au::trackedit::LabelKey& key)
 {
     return std::to_string(key.trackId) + ":" + std::to_string(key.itemId);
+}
+
+//! NOTE ClipKey and LabelKey are both aliases for the same TrackItemKey type,
+//! so this is just labelKeyToString() under a name that reads correctly at
+//! clip call sites - not a separate implementation.
+static std::string clipKeyToString(const au::trackedit::ClipKey& key)
+{
+    return labelKeyToString(key);
+}
+
+static std::string effectFamilyToString(au::effects::EffectFamily family)
+{
+    switch (family) {
+    case au::effects::EffectFamily::Builtin: return "Builtin";
+    case au::effects::EffectFamily::VST3: return "VST3";
+#ifdef Q_OS_LINUX
+    case au::effects::EffectFamily::LV2: return "LV2";
+#endif
+#ifdef Q_OS_MACOS
+    case au::effects::EffectFamily::AudioUnit: return "AudioUnit";
+#endif
+    case au::effects::EffectFamily::Nyquist: return "Nyquist";
+    case au::effects::EffectFamily::Extension: return "Extension";
+    case au::effects::EffectFamily::Unknown:
+    default: return "Unknown";
+    }
+}
+
+static std::string effectTypeToString(au::effects::EffectType type)
+{
+    switch (type) {
+    case au::effects::EffectType::Analyzer: return "Analyzer";
+    case au::effects::EffectType::Generator: return "Generator";
+    case au::effects::EffectType::Processor: return "Processor";
+    case au::effects::EffectType::Tool: return "Tool";
+    case au::effects::EffectType::Unknown:
+    default: return "Unknown";
+    }
+}
+
+static std::string parameterTypeToString(au::effects::ParameterType type)
+{
+    switch (type) {
+    case au::effects::ParameterType::Toggle: return "Toggle";
+    case au::effects::ParameterType::Dropdown: return "Dropdown";
+    case au::effects::ParameterType::Slider: return "Slider";
+    case au::effects::ParameterType::Numeric: return "Numeric";
+    case au::effects::ParameterType::ReadOnly: return "ReadOnly";
+    case au::effects::ParameterType::Time: return "Time";
+    case au::effects::ParameterType::File: return "File";
+    case au::effects::ParameterType::Text: return "Text";
+    case au::effects::ParameterType::Unknown:
+    default: return "Unknown";
+    }
+}
+
+static std::string toLowerAscii(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+static std::string trackTypeToString(au::trackedit::TrackType type)
+{
+    switch (type) {
+    case au::trackedit::TrackType::Mono: return "Mono";
+    case au::trackedit::TrackType::Stereo: return "Stereo";
+    case au::trackedit::TrackType::Label: return "Label";
+    case au::trackedit::TrackType::Undefined:
+    default: return "Undefined";
+    }
 }
 
 au::trackedit::TrackId AudacityCommandsController::findFirstLabelTrack() const
@@ -453,6 +701,73 @@ Response AudacityCommandsController::handleUpdateLabelText(const Request& reques
     return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
 }
 
+Response AudacityCommandsController::handleUpdateLabelTime(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+
+    if (!labelsInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ILabelsInteraction not available")));
+    }
+
+    std::string keyStr = request.query.param("key").toString();
+    au::trackedit::LabelKey key = parseLabelKey(keyStr);
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format "
+                                                              "\"trackId:itemId\" (as returned by list-labels/add-label)")));
+    }
+
+    muse::Val startVal = request.query.param("start");
+    muse::Val endVal = request.query.param("end");
+    if (startVal.isNull() && endVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Provide at least one of 'start', 'end'")));
+    }
+
+    std::vector<std::string> applied;
+
+    if (!startVal.isNull()) {
+        double newStart = 0.0;
+        try {
+            newStart = startVal.toDouble();
+        } catch (const std::exception& e) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'start' argument: ") + e.what()));
+        }
+        bool ok = labelsInteraction()->stretchLabelLeft(key, newStart, true);
+        if (!ok) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Failed to move label start - the label may not exist")));
+        }
+        applied.push_back("start");
+    }
+
+    if (!endVal.isNull()) {
+        double newEnd = 0.0;
+        try {
+            newEnd = endVal.toDouble();
+        } catch (const std::exception& e) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'end' argument: ") + e.what()));
+        }
+        bool ok = labelsInteraction()->stretchLabelRight(key, newEnd, true);
+        if (!ok) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Failed to move label end - the label may not exist")));
+        }
+        applied.push_back("end");
+    }
+
+    std::string message = "Updated: ";
+    for (size_t i = 0; i < applied.size(); ++i) {
+        message += applied[i];
+        if (i + 1 < applied.size()) {
+            message += ", ";
+        }
+    }
+    return make_response(request, make_ret(Ret::Code::Ok, message));
+}
+
 Response AudacityCommandsController::handleApplyEffect(const Request& request)
 {
     if (!hasOpenProject()) {
@@ -593,4 +908,1534 @@ Response AudacityCommandsController::handleExportWav(const Request& request)
 
     muse::Ret ret = exporter()->exportData(muse::io::path_t(path), options);
     return make_response(request, ret);
+}
+
+au::trackedit::TrackIdList AudacityCommandsController::selectedOrEmptyTracks() const
+{
+    if (!selectionController()) {
+        return {};
+    }
+    return selectionController()->selectedTracks();
+}
+
+Response AudacityCommandsController::handleSelectNone(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ISelectionController not available")));
+    }
+
+    selectionController()->resetSelectedTracks();
+    selectionController()->resetDataSelection();
+
+    return make_response(request, make_ret(Ret::Code::Ok, std::string("Selection cleared")));
+}
+
+Response AudacityCommandsController::handleSelectTracks(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ISelectionController not available")));
+    }
+
+    muse::Val trackVal = request.query.param("track");
+    if (trackVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'track' argument (0-based index)")));
+    }
+    int trackIndex = 0;
+    int count = 1;
+    try {
+        trackIndex = static_cast<int>(trackVal.toDouble());
+        muse::Val countVal = request.query.param("count");
+        if (!countVal.isNull()) {
+            count = static_cast<int>(countVal.toDouble());
+        }
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track'/'count' argument: ") + e.what()));
+    }
+
+    project::IAudacityProjectPtr project = globalContext()->currentProject();
+    au::trackedit::ITrackeditProjectPtr trackeditProject = project->trackeditProject();
+    if (!trackeditProject) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
+    }
+
+    std::vector<au::trackedit::Track> allTracks;
+    for (const au::trackedit::Track& track : trackeditProject->trackList()) {
+        allTracks.push_back(track);
+    }
+
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(allTracks.size())) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Track index out of range - project has ") + std::to_string(allTracks.size())
+                                                 + " track(s)"));
+    }
+
+    au::trackedit::TrackIdList selected;
+    for (int i = trackIndex; i < trackIndex + count && i < static_cast<int>(allTracks.size()); ++i) {
+        selected.push_back(allTracks[static_cast<size_t>(i)].id);
+    }
+
+    selectionController()->setSelectedTracks(selected);
+
+    return make_response(request, make_ret(Ret::Code::Ok,
+                                             std::string("Selected ") + std::to_string(selected.size()) + " track(s) starting at index "
+                                             + std::to_string(trackIndex)));
+}
+
+Response AudacityCommandsController::handleTrackAddMono(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    bool ok = trackeditInteraction()->newMonoTrack();
+    std::string message = ok ? "Mono track added" : "Failed to add mono track";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleTrackAddStereo(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    bool ok = trackeditInteraction()->newStereoTrack();
+    std::string message = ok ? "Stereo track added" : "Failed to add stereo track";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleTrackRemove(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No tracks selected - call select-tracks first")));
+    }
+
+    bool ok = trackeditInteraction()->deleteTracks(tracks);
+    std::string message = ok ? "Removed " + std::to_string(tracks.size()) + " track(s)" : "Failed to remove tracks";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleTrackSetProperties(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !trackPlaybackControl()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("ITrackeditInteraction/ITrackPlaybackControl not available")));
+    }
+
+    muse::Val trackVal = request.query.param("track");
+    if (trackVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'track' argument (0-based index)")));
+    }
+
+    project::IAudacityProjectPtr project = globalContext()->currentProject();
+    au::trackedit::ITrackeditProjectPtr trackeditProject = project->trackeditProject();
+    if (!trackeditProject) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
+    }
+
+    int trackIndex = 0;
+    try {
+        trackIndex = static_cast<int>(trackVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track' argument: ") + e.what()));
+    }
+
+    std::vector<au::trackedit::Track> allTracks;
+    for (const au::trackedit::Track& track : trackeditProject->trackList()) {
+        allTracks.push_back(track);
+    }
+    if (trackIndex < 0 || trackIndex >= static_cast<int>(allTracks.size())) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Track index out of range - project has ") + std::to_string(allTracks.size())
+                                                 + " track(s)"));
+    }
+    au::trackedit::TrackId trackId = allTracks[static_cast<size_t>(trackIndex)].id;
+
+    std::vector<std::string> applied;
+
+    std::string name = request.query.param("name").toString();
+    if (!name.empty()) {
+        trackeditInteraction()->changeTrackTitle(trackId, String::fromStdString(name));
+        applied.push_back("name");
+    }
+
+    muse::Val gainVal = request.query.param("gain");
+    if (!gainVal.isNull()) {
+        double gain = 0.0;
+        try {
+            gain = gainVal.toDouble();
+        } catch (const std::exception& e) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'gain' argument: ") + e.what()));
+        }
+        trackPlaybackControl()->setVolume(trackId, gain, true);
+        applied.push_back("gain");
+    }
+
+    muse::Val panVal = request.query.param("pan");
+    if (!panVal.isNull()) {
+        double pan = 0.0;
+        try {
+            pan = panVal.toDouble();
+        } catch (const std::exception& e) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'pan' argument: ") + e.what()));
+        }
+        trackPlaybackControl()->setPan(trackId, pan, true);
+        applied.push_back("pan");
+    }
+
+    muse::Val muteVal = request.query.param("mute");
+    if (!muteVal.isNull()) {
+        trackPlaybackControl()->setMuted(trackId, muteVal.toBool());
+        applied.push_back("mute");
+    }
+
+    muse::Val soloVal = request.query.param("solo");
+    if (!soloVal.isNull()) {
+        trackPlaybackControl()->setSolo(trackId, soloVal.toBool());
+        applied.push_back("solo");
+    }
+
+    if (applied.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No properties given - pass at least one of name/gain/pan/mute/solo")));
+    }
+
+    std::string message = "Updated: ";
+    for (size_t i = 0; i < applied.size(); ++i) {
+        message += applied[i] + (i + 1 < applied.size() ? ", " : "");
+    }
+    return make_response(request, make_ret(Ret::Code::Ok, message));
+}
+
+Response AudacityCommandsController::handleTrackDuplicate(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No tracks selected - call select-tracks first")));
+    }
+
+    bool ok = trackeditInteraction()->duplicateTracks(tracks);
+    std::string message = ok ? "Duplicated " + std::to_string(tracks.size()) + " track(s)" : "Failed to duplicate tracks";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleTrackResample(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    muse::Val rateVal = request.query.param("rate");
+    if (rateVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'rate' argument (Hz)")));
+    }
+    int rate = 0;
+    try {
+        rate = static_cast<int>(rateVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'rate' argument: ") + e.what()));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No tracks selected - call select-tracks first")));
+    }
+
+    bool ok = trackeditInteraction()->resampleTracks(tracks, rate);
+    std::string message = ok ? "Resampled to " + std::to_string(rate) + "Hz" : "Failed to resample";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleTrackMuteOrUnmuteAll(const Request& request, bool mute)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackPlaybackControl()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackPlaybackControl not available")));
+    }
+
+    project::IAudacityProjectPtr project = globalContext()->currentProject();
+    au::trackedit::ITrackeditProjectPtr trackeditProject = project->trackeditProject();
+    if (!trackeditProject) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
+    }
+
+    // NOTE: iterates the real track list directly by id (includes label
+    // tracks - setMuted on one is a harmless no-op) rather than a 0-based
+    // index, deliberately avoiding the mismatch risk that blocked this
+    // command earlier: trackeditProject->trackList() includes label tracks,
+    // but project-get-info's (index-facing) track list does not - looping
+    // "0..count" and calling the index-based track-set-properties would
+    // silently hit the wrong track whenever a label track sits before an
+    // audio track.
+    int count = 0;
+    for (const au::trackedit::Track& track : trackeditProject->trackList()) {
+        trackPlaybackControl()->setMuted(track.id, mute);
+        ++count;
+    }
+
+    std::string message = (mute ? "Muted " : "Unmuted ") + std::to_string(count) + " track(s)";
+    return make_response(request, make_ret(Ret::Code::Ok, message));
+}
+
+Response AudacityCommandsController::handleTrackMuteAll(const Request& request)
+{
+    return handleTrackMuteOrUnmuteAll(request, true);
+}
+
+Response AudacityCommandsController::handleTrackUnmuteAll(const Request& request)
+{
+    return handleTrackMuteOrUnmuteAll(request, false);
+}
+
+Response AudacityCommandsController::handleEditCut(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->cutItemDataIntoClipboard(tracks, begin, end, true, true);
+    std::string message = ok ? "Cut to clipboard" : "Failed to cut - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditCopy(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->copyContinuousTrackDataIntoClipboard(tracks.front(), begin, end);
+    std::string message = ok ? "Copied to clipboard" : "Failed to copy - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditPaste(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    secs_t begin = selectionController()->dataSelectedStartTime();
+
+    muse::Ret ret = trackeditInteraction()->pasteFromClipboard(begin, true);
+    return make_response(request, ret);
+}
+
+Response AudacityCommandsController::handleEditDelete(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->removeTracksData(tracks, begin, end, true);
+    std::string message = ok ? "Deleted selection" : "Failed to delete - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditSplit(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    std::vector<secs_t> pivots;
+    pivots.push_back(begin);
+    if (end > begin) {
+        pivots.push_back(end);
+    }
+
+    bool ok = trackeditInteraction()->splitTracksAt(tracks, pivots);
+    std::string message = ok ? "Split at selection" : "Failed to split";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditTrim(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->trimTracksData(tracks, begin, end);
+    std::string message = ok ? "Trimmed to selection" : "Failed to trim - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditSilence(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->silenceTracksData(tracks, begin, end);
+    std::string message = ok ? "Replaced selection with silence" : "Failed to silence - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditDuplicate(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->duplicateSelectedOnTracks(tracks, begin, end);
+    std::string message = ok ? "Duplicated selection" : "Failed to duplicate - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditUndo(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    if (!trackeditInteraction()->canUndo()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Nothing to undo")));
+    }
+    bool ok = trackeditInteraction()->undo();
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, std::string(ok ? "Undone" : "Undo failed")));
+}
+
+Response AudacityCommandsController::handleEditRedo(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    if (!trackeditInteraction()->canRedo()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Nothing to redo")));
+    }
+    bool ok = trackeditInteraction()->redo();
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, std::string(ok ? "Redone" : "Redo failed")));
+}
+
+Response AudacityCommandsController::handleEditSplitNew(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->splitRangeSelectionIntoNewTracks(tracks, begin, end);
+    std::string message = ok ? "Split selection into new track(s)" : "Failed to split into new track - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditSplitCut(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->splitCutSelectedOnTracks(tracks, begin, end);
+    std::string message = ok ? "Cut selection, leaving a gap" : "Failed to split-cut - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditSplitDelete(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->splitDeleteSelectedOnTracks(tracks, begin, end);
+    std::string message = ok ? "Deleted selection, leaving a gap" : "Failed to split-delete - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditDisjoin(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->splitRangeSelectionAtSilences(tracks, begin, end);
+    std::string message = ok ? "Split at detected silences" : "Failed to disjoin - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleEditJoin(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No tracks selected")));
+    }
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    bool ok = trackeditInteraction()->mergeSelectedOnTracks(tracks, begin, end);
+    std::string message = ok ? "Joined selected clips" : "Failed to join - check that a time range is selected";
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleSelectZeroCrossing(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction() || !selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Trackedit/selection interfaces not available")));
+    }
+
+    secs_t begin = selectionController()->dataSelectedStartTime();
+    secs_t end = selectionController()->dataSelectedEndTime();
+
+    double newBegin = trackeditInteraction()->nearestZeroCrossing(begin);
+    double newEnd = (end > begin) ? trackeditInteraction()->nearestZeroCrossing(end) : newBegin;
+
+    selectionController()->setSelectedAllAudioData(newBegin, newEnd);
+
+    std::string message = "Adjusted selection to zero crossings: " + std::to_string(newBegin) + "-" + std::to_string(newEnd) + "s";
+    return make_response(request, make_ret(Ret::Code::Ok, message));
+}
+
+Response AudacityCommandsController::handleProjectOpen(const Request& request)
+{
+    if (!projectFilesController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IProjectFilesController not available")));
+    }
+
+    std::string path = request.query.param("path").toString();
+    if (path.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    }
+
+    muse::io::path_t projectPath(path);
+    project::ProjectFile file(projectPath);
+    muse::Ret ret = projectFilesController()->openProject(file);
+    return make_response(request, ret);
+}
+
+Response AudacityCommandsController::handleProjectImport(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!importer()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IImporter not available")));
+    }
+
+    std::string path = request.query.param("path").toString();
+    if (path.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    }
+
+    bool ok = importer()->import(muse::io::path_t(path));
+    std::string message = ok ? "Imported " + path : "Failed to import " + path;
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleProjectClose(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+
+    project::IAudacityProjectPtr project = globalContext() ? globalContext()->currentProject() : nullptr;
+    if (!project) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+
+    //! NOTE ProjectActionsController::closeOpenedProject() unconditionally calls
+    //! interactive()->closeAllDialogsSync() as its last step, regardless of whether the project
+    //! had unsaved changes. That call opens a nested QEventLoop waiting for every tracked
+    //! dialog/page object to report itself closed - live-tested and confirmed (via WinDbg thread
+    //! dump: main thread stuck in Interactive::closeAllDialogsSync -> closeObjectsSync ->
+    //! QEventLoop::exec at interactive.cpp:804/880) that this never resolves when called from
+    //! the MCP command-dispatch call path, hanging the connection indefinitely. This is not
+    //! specific to unsaved changes - it reproduces even right after a clean save. So we bypass
+    //! IProjectFilesController::closeOpenedProject() entirely here and do the same close
+    //! sequence it performs before that call (refuse-if-dirty, then project->close() +
+    //! globalContext()->setCurrentProject(nullptr)) without going through the interactive-dialog
+    //! cleanup step.
+    if (project->hasUnsavedChanges()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Project has unsaved changes - call project-save-as first to "
+                                                              "save, then close.")));
+    }
+
+    stopPlaybackIfRunning();
+
+    project->close();
+    globalContext()->setCurrentProject(nullptr);
+
+    return make_response(request, make_ret(Ret::Code::Ok, std::string("Project closed")));
+}
+
+Response AudacityCommandsController::handleProjectSaveAs(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!projectFilesController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IProjectFilesController not available")));
+    }
+
+    std::string path = request.query.param("path").toString();
+    if (path.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    }
+
+    stopPlaybackIfRunning();
+
+    bool ok = projectFilesController()->saveProjectLocally(muse::io::path_t(path));
+    std::string message = ok ? "Project saved to " + path : "Failed to save project to " + path;
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError, message));
+}
+
+Response AudacityCommandsController::handleProjectExport(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!exporter()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IExporter not available")));
+    }
+
+    std::string path = request.query.param("path").toString();
+    if (path.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    }
+
+    bool overwrite = request.query.param("overwrite").toBool();
+    if (!overwrite && fileSystem() && fileSystem()->exists(muse::io::path_t(path))) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("File already exists at '") + path
+                                                 + "' - pass overwrite=true to replace it"));
+    }
+
+    au::importexport::IExporter::Options options;
+    options[au::importexport::IExporter::OptionKey::Format] = muse::Val(std::string("WAV (Microsoft)"));
+    options[au::importexport::IExporter::OptionKey::ProcessType]
+        = muse::Val(static_cast<int>(au::importexport::ExportProcessType::FULL_PROJECT_AUDIO));
+    options[au::importexport::IExporter::OptionKey::ExportChannelsType]
+        = muse::Val(static_cast<int>(au::importexport::ExportChannelsPref::ExportChannels::STEREO));
+    options[au::importexport::IExporter::OptionKey::ExportSampleRate] = muse::Val(44100);
+
+    muse::Ret ret = exporter()->exportData(muse::io::path_t(path), options);
+    return make_response(request, ret);
+}
+
+Response AudacityCommandsController::handleTransportRecord(const Request& request)
+{
+    dispatcher()->dispatch(ActionQuery("action://record/start"));
+
+    PlaybackStatus status = playbackController() ? playbackController()->playbackStatus() : PlaybackStatus::Stopped;
+    std::string message = "transport-record: playback is now " + playbackStatusToString(status);
+    return make_response(request, make_ret(Ret::Code::Ok, message));
+}
+
+Response AudacityCommandsController::handleCursorSet(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ISelectionController not available")));
+    }
+
+    muse::Val timeVal = request.query.param("time");
+    if (timeVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'time' argument (seconds)")));
+    }
+    double time = 0.0;
+    try {
+        time = timeVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'time' argument: ") + e.what()));
+    }
+
+    selectionController()->setSelectedAllAudioData(time, time);
+
+    return make_response(request, make_ret(Ret::Code::Ok, "Cursor set to " + std::to_string(time) + "s"));
+}
+
+Response AudacityCommandsController::handleProjectGetInfo(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+
+    project::IAudacityProjectPtr project = globalContext()->currentProject();
+    au::trackedit::ITrackeditProjectPtr trackeditProject = project->trackeditProject();
+    if (!trackeditProject) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
+    }
+
+    JsonArray tracksArr;
+    int labelTrackCount = 0;
+    int labelCount = 0;
+    for (const au::trackedit::Track& track : trackeditProject->trackList()) {
+        if (track.type == au::trackedit::TrackType::Label) {
+            labelTrackCount++;
+            labelCount += static_cast<int>(trackeditProject->labelList(track.id).size());
+            continue;
+        }
+
+        JsonObject obj;
+        obj["id"] = static_cast<int>(track.id);
+        obj["title"] = track.title.toStdString();
+        obj["type"] = trackTypeToString(track.type);
+        obj["rate"] = static_cast<double>(track.rate);
+        obj["mute"] = track.mute;
+        obj["solo"] = track.solo;
+        obj["clipCount"] = static_cast<int>(trackeditProject->clipList(track.id).size());
+        tracksArr << obj;
+    }
+
+    const double durationSec = playbackController() ? static_cast<double>(playbackController()->totalPlayTime()) : 0.0;
+
+    JsonObject root;
+    root["path"] = project->path().toString().toStdString();
+    root["displayName"] = project->displayName().toStdString();
+    root["isNewlyCreated"] = project->isNewlyCreated();
+    root["hasUnsavedChanges"] = project->hasUnsavedChanges();
+    root["durationSec"] = durationSec;
+    root["trackCount"] = static_cast<int>(tracksArr.size());
+    root["tracks"] = tracksArr;
+    root["labelTrackCount"] = labelTrackCount;
+    root["labelCount"] = labelCount;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("project-get-info")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleTrackGetInfo(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+
+    project::IAudacityProjectPtr project = globalContext()->currentProject();
+    au::trackedit::ITrackeditProjectPtr trackeditProject = project->trackeditProject();
+    if (!trackeditProject) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    if (trackIdVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'track_id' argument")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id' argument: ") + e.what()));
+    }
+
+    const au::trackedit::Track* found = nullptr;
+    std::vector<au::trackedit::Track> tracks = trackeditProject->trackList();
+    for (const au::trackedit::Track& track : tracks) {
+        if (track.id == trackId) {
+            found = &track;
+            break;
+        }
+    }
+    if (!found) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No track with id ") + std::to_string(trackId)));
+    }
+
+    JsonObject root;
+    root["id"] = static_cast<int>(found->id);
+    root["title"] = found->title.toStdString();
+    root["type"] = trackTypeToString(found->type);
+    root["rate"] = static_cast<double>(found->rate);
+    root["mute"] = found->mute;
+    root["solo"] = found->solo;
+
+    if (found->type == au::trackedit::TrackType::Label) {
+        JsonArray labelsArr;
+        for (const au::trackedit::Label& label : trackeditProject->labelList(trackId)) {
+            JsonObject obj;
+            obj["key"] = labelKeyToString(label.key);
+            obj["title"] = label.title.toStdString();
+            obj["start"] = label.startTime;
+            obj["end"] = label.endTime;
+            labelsArr << obj;
+        }
+        root["labelCount"] = static_cast<int>(labelsArr.size());
+        root["labels"] = labelsArr;
+    } else {
+        JsonArray clipsArr;
+        for (const au::trackedit::Clip& clip : trackeditProject->clipList(trackId)) {
+            JsonObject obj;
+            obj["key"] = clipKeyToString(clip.key);
+            obj["title"] = clip.title.toStdString();
+            obj["start"] = clip.startTime;
+            obj["end"] = clip.endTime;
+            obj["stereo"] = clip.stereo;
+            clipsArr << obj;
+        }
+        root["clipCount"] = static_cast<int>(clipsArr.size());
+        root["clips"] = clipsArr;
+    }
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("track-get-info")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleSelectClip(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ISelectionController not available")));
+    }
+
+    std::string keyStr = request.query.param("key").toString();
+    if (keyStr.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'key' argument")));
+    }
+    au::trackedit::ClipKey key = parseLabelKey(keyStr);
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'key' - expected \"trackId:itemId\"")));
+    }
+
+    project::IAudacityProjectPtr project = globalContext()->currentProject();
+    au::trackedit::ITrackeditProjectPtr trackeditProject = project->trackeditProject();
+    if (!trackeditProject) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
+    }
+
+    const au::trackedit::Clip* found = nullptr;
+    for (const au::trackedit::Clip& clip : trackeditProject->clipList(key.trackId)) {
+        if (clip.key.itemId == key.itemId) {
+            found = &clip;
+            break;
+        }
+    }
+    if (!found) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No clip with key ") + keyStr));
+    }
+
+    selectionController()->setSelectedTracks({ key.trackId });
+    selectionController()->setSelectedClips({ key });
+    selectionController()->setSelectedAllAudioData(found->startTime, found->endTime);
+
+    return make_response(request, make_ret(Ret::Code::Ok, std::string("Selected clip ") + keyStr));
+}
+
+Response AudacityCommandsController::handleTransportGetPlayPosition(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!selectionController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ISelectionController not available")));
+    }
+
+    //! NOTE playbackState() is reached via globalContext(), not a new
+    //! ContextInject - IPlaybackState is deliberately the only sanctioned way
+    //! to read the live player's position (see its own header comment: direct
+    //! IPlayer access is reserved for playback control, not queries).
+    double playPosition = 0.0;
+    bool isPlaying = false;
+    if (globalContext() && globalContext()->playbackState()) {
+        playPosition = static_cast<double>(globalContext()->playbackState()->playbackPosition());
+        isPlaying = globalContext()->playbackState()->isPlaying();
+    }
+
+    JsonObject root;
+    root["playPosition"] = playPosition;
+    root["isPlaying"] = isPlaying;
+    root["selectionStart"] = static_cast<double>(selectionController()->dataSelectedStartTime());
+    root["selectionEnd"] = static_cast<double>(selectionController()->dataSelectedEndTime());
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("transport-get-play-position")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleListEffects(const Request& request)
+{
+    if (!effectsProvider()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IEffectsProvider not available")));
+    }
+
+    const std::string categoryFilter = toLowerAscii(request.query.param("category").toString());
+    const std::string familyFilter = toLowerAscii(request.query.param("family").toString());
+    const std::string searchFilter = toLowerAscii(request.query.param("search").toString());
+
+    muse::Val limitVal = request.query.param("limit");
+    int limit = 100;
+    if (!limitVal.isNull()) {
+        try {
+            limit = static_cast<int>(limitVal.toDouble());
+        } catch (const std::exception&) {
+            limit = 100;
+        }
+    }
+    if (limit < 1) {
+        limit = 1;
+    }
+
+    JsonArray effectsArr;
+    int totalMatched = 0;
+    for (const au::effects::EffectMeta& meta : effectsProvider()->effectMetaList()) {
+        const std::string title = meta.title.toStdString();
+        const std::string category = meta.category.toStdString();
+        const std::string family = effectFamilyToString(meta.family);
+
+        if (!categoryFilter.empty() && toLowerAscii(category).find(categoryFilter) == std::string::npos) {
+            continue;
+        }
+        if (!familyFilter.empty() && toLowerAscii(family) != familyFilter) {
+            continue;
+        }
+        if (!searchFilter.empty() && toLowerAscii(title).find(searchFilter) == std::string::npos) {
+            continue;
+        }
+
+        totalMatched++;
+        if (static_cast<int>(effectsArr.size()) >= limit) {
+            continue;
+        }
+
+        JsonObject obj;
+        obj["title"] = title;
+        obj["id"] = meta.id.toStdString();
+        obj["family"] = family;
+        obj["type"] = effectTypeToString(meta.type);
+        obj["category"] = category;
+        obj["vendor"] = meta.vendor.toStdString();
+        obj["isRealtimeCapable"] = meta.isRealtimeCapable;
+        obj["isActivated"] = meta.isActivated;
+        effectsArr << obj;
+    }
+
+    JsonObject root;
+    root["effects"] = effectsArr;
+    root["returnedCount"] = static_cast<int>(effectsArr.size());
+    root["totalMatched"] = totalMatched;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("list-effects")));
+    response.data = json;
+    return response;
+}
+
+au::effects::RealtimeEffectStatePtr AudacityCommandsController::realtimeEffectAt(au::trackedit::TrackId trackId, int index) const
+{
+    if (!realtimeEffectService()) {
+        return nullptr;
+    }
+    std::optional<std::vector<au::effects::RealtimeEffectStatePtr> > stack = realtimeEffectService()->effectStack(trackId);
+    if (!stack.has_value() || index < 0 || index >= static_cast<int>(stack->size())) {
+        return nullptr;
+    }
+    return (*stack)[static_cast<size_t>(index)];
+}
+
+Response AudacityCommandsController::handleAddRealtimeEffect(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!realtimeEffectService()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IRealtimeEffectService not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    if (trackIdVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'track_id' argument (use -2 for the Master bus)")));
+    }
+    std::string effectId = request.query.param("effect_id").toString();
+    if (effectId.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'effect_id' argument")));
+    }
+
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id' argument: ") + e.what()));
+    }
+
+    au::effects::RealtimeEffectStatePtr state
+        =realtimeEffectService()->addRealtimeEffect(trackId, String::fromStdString(effectId));
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Failed to add realtime effect '") + effectId + "' - check the "
+                                                 "effect_id is exact (from list-effects) and the track_id is valid"));
+    }
+
+    std::optional<std::vector<au::effects::RealtimeEffectStatePtr> > stack = realtimeEffectService()->effectStack(trackId);
+    int index = stack.has_value() ? static_cast<int>(stack->size()) - 1 : -1;
+
+    JsonObject root;
+    root["trackId"] = static_cast<int>(trackId);
+    root["index"] = index;
+    root["effectId"] = effectId;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("Added realtime effect ") + effectId));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleListRealtimeEffects(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!realtimeEffectService()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IRealtimeEffectService not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    if (trackIdVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'track_id' argument (use -2 for the Master bus)")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id' argument: ") + e.what()));
+    }
+
+    std::optional<std::vector<au::effects::RealtimeEffectStatePtr> > stack = realtimeEffectService()->effectStack(trackId);
+
+    JsonArray arr;
+    if (stack.has_value()) {
+        for (size_t i = 0; i < stack->size(); ++i) {
+            const au::effects::RealtimeEffectStatePtr& state = (*stack)[i];
+            std::optional<std::string> name = realtimeEffectService()->effectName(state);
+
+            JsonObject obj;
+            obj["index"] = static_cast<int>(i);
+            obj["effectName"] = name.value_or("Unknown");
+            obj["isActive"] = realtimeEffectService()->isActive(state);
+            arr << obj;
+        }
+    }
+
+    JsonObject root;
+    root["trackId"] = static_cast<int>(trackId);
+    root["effects"] = arr;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("list-realtime-effects")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleRemoveRealtimeEffect(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!realtimeEffectService()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IRealtimeEffectService not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    muse::Val indexVal = request.query.param("index");
+    if (trackIdVal.isNull() || indexVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'track_id'/'index' arguments")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    int index = -1;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+        index = static_cast<int>(indexVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id'/'index' argument: ") + e.what()));
+    }
+
+    au::effects::RealtimeEffectStatePtr state = realtimeEffectAt(trackId, index);
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No realtime effect at index ") + std::to_string(index)
+                                                 + " on track " + std::to_string(trackId)));
+    }
+
+    realtimeEffectService()->removeRealtimeEffect(trackId, state);
+
+    return make_response(request, make_ret(Ret::Code::Ok, std::string("Removed realtime effect at index ") + std::to_string(index)));
+}
+
+Response AudacityCommandsController::handleSetRealtimeEffectActive(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!realtimeEffectService()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IRealtimeEffectService not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    muse::Val indexVal = request.query.param("index");
+    muse::Val activeVal = request.query.param("active");
+    if (trackIdVal.isNull() || indexVal.isNull() || activeVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'track_id'/'index'/'active' arguments")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    int index = -1;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+        index = static_cast<int>(indexVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id'/'index' argument: ") + e.what()));
+    }
+    bool active = activeVal.toBool();
+
+    au::effects::RealtimeEffectStatePtr state = realtimeEffectAt(trackId, index);
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No realtime effect at index ") + std::to_string(index)
+                                                 + " on track " + std::to_string(trackId)));
+    }
+
+    realtimeEffectService()->setIsActive(state, active);
+
+    return make_response(request, make_ret(Ret::Code::Ok,
+                                            std::string(active ? "Enabled" : "Bypassed") + " realtime effect at index "
+                                            + std::to_string(index)));
+}
+
+au::effects::EffectInstanceId AudacityCommandsController::realtimeEffectInstanceId(
+    const au::effects::RealtimeEffectStatePtr& state) const
+{
+    if (!state || !effectInstancesRegister()) {
+        return au::effects::EffectInstanceId();
+    }
+    const auto instance = std::dynamic_pointer_cast<au::effects::EffectInstance>(state->GetInstance());
+    if (!instance) {
+        return au::effects::EffectInstanceId();
+    }
+
+    //! NOTE Confirmed live: instance->id() alone is NOT enough - it's just the
+    //! raw AU3 instance identity, meaningless to EffectParametersProvider until
+    //! actually registered via IEffectInstancesRegister::regInstance() (fails
+    //! with "Effect instance not found" otherwise). Realtime effects don't get
+    //! auto-registered by addRealtimeEffect - the UI only does this when a
+    //! settings panel is opened (RealtimeEffectViewerDialogModel::reload(),
+    //! effects/effects_base/view/realtimeeffectviewerdialogmodel.cpp), which
+    //! never happens for an MCP-only session. Register on first use here
+    //! instead - regInstance() is safe to call again for an already-registered
+    //! id (effectinstancesregister.cpp's regInstance() is a plain map insert,
+    //! a no-op if the key already exists).
+    if (effectInstancesRegister()->instanceById(instance->id())) {
+        return instance->id();
+    }
+    return effectInstancesRegister()->regInstance(String::fromStdString(state->GetID().ToStdString()), instance, state->GetAccess());
+}
+
+Response AudacityCommandsController::handleListEffectParameters(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!effectParametersProvider()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("IEffectParametersProvider not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    muse::Val indexVal = request.query.param("index");
+    if (trackIdVal.isNull() || indexVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'track_id'/'index' arguments")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    int index = -1;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+        index = static_cast<int>(indexVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id'/'index' argument: ") + e.what()));
+    }
+
+    au::effects::RealtimeEffectStatePtr state = realtimeEffectAt(trackId, index);
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No realtime effect at index ") + std::to_string(index)
+                                                 + " on track " + std::to_string(trackId)));
+    }
+
+    au::effects::EffectInstanceId instanceId = realtimeEffectInstanceId(state);
+    if (instanceId == au::effects::EffectInstanceId()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Could not resolve an instance for this effect - "
+                                                              "it may not support parameter extraction")));
+    }
+
+    JsonArray arr;
+    for (const au::effects::ParameterInfo& p : effectParametersProvider()->parameters(instanceId)) {
+        JsonObject obj;
+        obj["id"] = p.id.toStdString();
+        obj["name"] = p.name.toStdString();
+        obj["units"] = p.units.toStdString();
+        obj["type"] = parameterTypeToString(p.type);
+        obj["minValue"] = p.minValue;
+        obj["maxValue"] = p.maxValue;
+        obj["defaultValue"] = p.defaultValue;
+        obj["currentValue"] = p.currentValue;
+        obj["currentValueString"] = p.currentValueString.toStdString();
+        if (!p.enumValues.empty()) {
+            JsonArray enumArr;
+            for (const muse::String& v : p.enumValues) {
+                enumArr << v.toStdString();
+            }
+            obj["enumValues"] = enumArr;
+        }
+        arr << obj;
+    }
+
+    JsonObject root;
+    root["trackId"] = static_cast<int>(trackId);
+    root["index"] = index;
+    root["parameters"] = arr;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("list-effect-parameters")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleSetEffectParameter(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!effectParametersProvider()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("IEffectParametersProvider not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    muse::Val indexVal = request.query.param("index");
+    std::string parameterId = request.query.param("parameter_id").toString();
+    muse::Val valueVal = request.query.param("value");
+    if (trackIdVal.isNull() || indexVal.isNull() || parameterId.empty() || valueVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'track_id'/'index'/'parameter_id'/'value' arguments")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    int index = -1;
+    double value = 0.0;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+        index = static_cast<int>(indexVal.toDouble());
+        value = valueVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid 'track_id'/'index'/'value' argument: ") + e.what()));
+    }
+
+    au::effects::RealtimeEffectStatePtr state = realtimeEffectAt(trackId, index);
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No realtime effect at index ") + std::to_string(index)
+                                                 + " on track " + std::to_string(trackId)));
+    }
+
+    au::effects::EffectInstanceId instanceId = realtimeEffectInstanceId(state);
+    if (instanceId == au::effects::EffectInstanceId()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Could not resolve an instance for this effect - "
+                                                              "it may not support parameter extraction")));
+    }
+
+    //! NOTE Confirmed live: a bare setParameterValue() call (no gesture) reports
+    //! success but the write does not stick - re-reading the parameter
+    //! afterward (via a fresh list-effect-parameters call, not just this
+    //! function's own parameterValueString echo) showed the value unchanged.
+    //! VST3 plugins commonly expect a begin/end "gesture" bracketing a
+    //! parameter write to distinguish real automation from a spurious set -
+    //! IEffectParametersProvider exposes exactly this pairing.
+    const muse::String paramIdStr = String::fromStdString(parameterId);
+    effectParametersProvider()->beginParameterGesture(instanceId, paramIdStr);
+    bool ok = effectParametersProvider()->setParameterValue(instanceId, paramIdStr, value);
+    effectParametersProvider()->endParameterGesture(instanceId, paramIdStr);
+    if (!ok) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Failed to set parameter '") + parameterId + "' - check the "
+                                                 "parameter_id is exact (from list-effect-parameters) and value is in range"));
+    }
+
+    muse::String formatted = effectParametersProvider()->parameterValueString(instanceId, paramIdStr, value);
+
+    return make_response(request, make_ret(Ret::Code::Ok,
+                                            std::string("Set ") + parameterId + " = " + formatted.toStdString()));
+}
+
+Response AudacityCommandsController::handleListEffectPresets(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!effectPresetsProvider()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IEffectPresetsProvider not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    muse::Val indexVal = request.query.param("index");
+    if (trackIdVal.isNull() || indexVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'track_id'/'index' arguments")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    int index = -1;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+        index = static_cast<int>(indexVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id'/'index' argument: ") + e.what()));
+    }
+
+    au::effects::RealtimeEffectStatePtr state = realtimeEffectAt(trackId, index);
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No realtime effect at index ") + std::to_string(index)
+                                                 + " on track " + std::to_string(trackId)));
+    }
+
+    const au::effects::EffectId effectId = String::fromStdString(state->GetID().ToStdString());
+
+    JsonArray arr;
+    for (const au::effects::PresetId& presetId : effectPresetsProvider()->factoryPresets(effectId)) {
+        arr << presetId.ToStdString();
+    }
+
+    JsonObject root;
+    root["trackId"] = static_cast<int>(trackId);
+    root["index"] = index;
+    root["factoryPresets"] = arr;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("list-effect-presets")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleApplyEffectPreset(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!effectPresetsProvider()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IEffectPresetsProvider not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    muse::Val indexVal = request.query.param("index");
+    std::string presetId = request.query.param("preset_id").toString();
+    if (trackIdVal.isNull() || indexVal.isNull() || presetId.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'track_id'/'index'/'preset_id' arguments")));
+    }
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    int index = -1;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+        index = static_cast<int>(indexVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id'/'index' argument: ") + e.what()));
+    }
+
+    au::effects::RealtimeEffectStatePtr state = realtimeEffectAt(trackId, index);
+    if (!state) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No realtime effect at index ") + std::to_string(index)
+                                                 + " on track " + std::to_string(trackId)));
+    }
+
+    au::effects::EffectInstanceId instanceId = realtimeEffectInstanceId(state);
+    if (instanceId == au::effects::EffectInstanceId()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Could not resolve an instance for this effect")));
+    }
+
+    muse::Ret ret = effectPresetsProvider()->applyPreset(instanceId, wxString::FromUTF8(presetId));
+    if (!ret) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Failed to apply preset '") + presetId + "': " + ret.text()));
+    }
+
+    return make_response(request, make_ret(Ret::Code::Ok, std::string("Applied preset ") + presetId));
 }
