@@ -171,6 +171,45 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/track-unmute-all"), [this](const Request& request) {
         return handleTrackUnmuteAll(request);
     });
+    registerCommand(Command("command://mcp/set-clip-pitch"), [this](const Request& request) {
+        return handleSetClipPitch(request);
+    });
+    registerCommand(Command("command://mcp/reset-clip-pitch"), [this](const Request& request) {
+        return handleResetClipPitch(request);
+    });
+    registerCommand(Command("command://mcp/set-clip-speed"), [this](const Request& request) {
+        return handleSetClipSpeed(request);
+    });
+    registerCommand(Command("command://mcp/reset-clip-speed"), [this](const Request& request) {
+        return handleResetClipSpeed(request);
+    });
+    registerCommand(Command("command://mcp/render-clip-pitch-speed"), [this](const Request& request) {
+        return handleRenderClipPitchSpeed(request);
+    });
+    registerCommand(Command("command://mcp/reset-clip-pitch-speed"), [this](const Request& request) {
+        return handleResetClipPitchSpeed(request);
+    });
+    registerCommand(Command("command://mcp/split-clip-at-silences"), [this](const Request& request) {
+        return handleSplitClipAtSilences(request);
+    });
+    registerCommand(Command("command://mcp/split-range-at-silences"), [this](const Request& request) {
+        return handleSplitRangeAtSilences(request);
+    });
+    registerCommand(Command("command://mcp/trim-clip"), [this](const Request& request) {
+        return handleTrimClip(request);
+    });
+    registerCommand(Command("command://mcp/stretch-clip"), [this](const Request& request) {
+        return handleStretchClip(request);
+    });
+    registerCommand(Command("command://mcp/nearest-zero-crossing"), [this](const Request& request) {
+        return handleNearestZeroCrossing(request);
+    });
+    registerCommand(Command("command://mcp/set-clip-color"), [this](const Request& request) {
+        return handleSetClipColor(request);
+    });
+    registerCommand(Command("command://mcp/set-track-color"), [this](const Request& request) {
+        return handleSetTrackColor(request);
+    });
 
     registerCommand(Command("command://mcp/edit-cut"), [this](const Request& request) {
         return handleEditCut(request);
@@ -1222,6 +1261,377 @@ Response AudacityCommandsController::handleTrackMuteAll(const Request& request)
 Response AudacityCommandsController::handleTrackUnmuteAll(const Request& request)
 {
     return handleTrackMuteOrUnmuteAll(request, false);
+}
+
+Response AudacityCommandsController::handleSetClipPitch(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+    muse::Val pitchVal = request.query.param("semitones");
+    if (pitchVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'semitones' argument")));
+    }
+    int semitones = 0;
+    try {
+        semitones = static_cast<int>(pitchVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'semitones' argument: ") + e.what()));
+    }
+
+    bool ok = trackeditInteraction()->changeClipPitch(key, semitones);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip pitch set" : "Failed to set clip pitch - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleResetClipPitch(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+
+    bool ok = trackeditInteraction()->resetClipPitch(key);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip pitch reset" : "Failed to reset clip pitch - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleSetClipSpeed(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+    muse::Val speedVal = request.query.param("speed");
+    if (speedVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'speed' argument")));
+    }
+    double speed = 1.0;
+    try {
+        speed = speedVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'speed' argument: ") + e.what()));
+    }
+
+    bool ok = trackeditInteraction()->changeClipSpeed(key, speed);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip speed set" : "Failed to set clip speed - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleResetClipSpeed(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+
+    bool ok = trackeditInteraction()->resetClipSpeed(key);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip speed reset" : "Failed to reset clip speed - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleRenderClipPitchSpeed(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+
+    bool ok = trackeditInteraction()->renderClipPitchAndSpeed(key);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip pitch/speed rendered permanently" : "Failed to render - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleResetClipPitchSpeed(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+
+    bool ok = trackeditInteraction()->resetClipPitchAndSpeed(key);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip pitch/speed reset" : "Failed to reset - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleSplitClipAtSilences(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+
+    bool ok = trackeditInteraction()->splitClipsAtSilences({ key });
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip split at detected silences" : "Failed to split - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleSplitRangeAtSilences(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    muse::Val startVal = request.query.param("start");
+    muse::Val endVal = request.query.param("end");
+    if (startVal.isNull() || endVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'start'/'end' arguments")));
+    }
+    double start = 0.0;
+    double end = 0.0;
+    try {
+        start = startVal.toDouble();
+        end = endVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'start'/'end' argument: ") + e.what()));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No tracks selected - call select-tracks first")));
+    }
+
+    bool ok = trackeditInteraction()->splitRangeSelectionAtSilences(tracks, start, end);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Selection split at detected silences" : "Failed to split")));
+}
+
+Response AudacityCommandsController::handleTrimClip(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+    std::string side = request.query.param("side").toString();
+    if (side != "left" && side != "right") {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("'side' must be \"left\" or \"right\"")));
+    }
+    muse::Val deltaVal = request.query.param("delta_sec");
+    if (deltaVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'delta_sec' argument")));
+    }
+    double delta = 0.0;
+    try {
+        delta = deltaVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'delta_sec' argument: ") + e.what()));
+    }
+    muse::Val minDurVal = request.query.param("min_clip_duration");
+    double minDur = minDurVal.isNull() ? 0.0 : minDurVal.toDouble();
+
+    bool ok = side == "left"
+              ? trackeditInteraction()->trimClipsLeft({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE)
+              : trackeditInteraction()->trimClipsRight({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip trimmed" : "Failed to trim - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleStretchClip(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+    std::string side = request.query.param("side").toString();
+    if (side != "left" && side != "right") {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("'side' must be \"left\" or \"right\"")));
+    }
+    muse::Val deltaVal = request.query.param("delta_sec");
+    if (deltaVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'delta_sec' argument")));
+    }
+    double delta = 0.0;
+    try {
+        delta = deltaVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'delta_sec' argument: ") + e.what()));
+    }
+    muse::Val minDurVal = request.query.param("min_clip_duration");
+    double minDur = minDurVal.isNull() ? 0.0 : minDurVal.toDouble();
+
+    bool ok = side == "left"
+              ? trackeditInteraction()->stretchClipsLeft({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE)
+              : trackeditInteraction()->stretchClipsRight({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip stretched" : "Failed to stretch - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleNearestZeroCrossing(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    muse::Val timeVal = request.query.param("time");
+    if (timeVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'time' argument")));
+    }
+    double time = 0.0;
+    try {
+        time = timeVal.toDouble();
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'time' argument: ") + e.what()));
+    }
+
+    double nearest = trackeditInteraction()->nearestZeroCrossing(time);
+
+    JsonObject root;
+    root["time"] = nearest;
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("nearest-zero-crossing")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleSetClipColor(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    au::trackedit::ClipKey key = parseLabelKey(request.query.param("key").toString());
+    if (!key.isValid()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Invalid or missing 'key' argument - expected format \"trackId:itemId\"")));
+    }
+    muse::Val colorVal = request.query.param("color_index");
+    if (colorVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'color_index' argument (0-9)")));
+    }
+    int colorIndex = 0;
+    try {
+        colorIndex = static_cast<int>(colorVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'color_index' argument: ") + e.what()));
+    }
+    if (colorIndex < 0 || colorIndex > au::trackedit::CLIP_COLOR_COUNT) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("'color_index' must be 0-") + std::to_string(au::trackedit::CLIP_COLOR_COUNT)));
+    }
+
+    bool ok = trackeditInteraction()->changeClipColor(key, colorIndex);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Clip color set" : "Failed to set clip color - the clip may not exist")));
+}
+
+Response AudacityCommandsController::handleSetTrackColor(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!trackeditInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("ITrackeditInteraction not available")));
+    }
+
+    muse::Val colorVal = request.query.param("color_index");
+    if (colorVal.isNull()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'color_index' argument (0-9)")));
+    }
+    int colorIndex = 0;
+    try {
+        colorIndex = static_cast<int>(colorVal.toDouble());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'color_index' argument: ") + e.what()));
+    }
+    if (colorIndex < 0 || colorIndex > au::trackedit::CLIP_COLOR_COUNT) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("'color_index' must be 0-") + std::to_string(au::trackedit::CLIP_COLOR_COUNT)));
+    }
+
+    au::trackedit::TrackIdList tracks = selectedOrEmptyTracks();
+    if (tracks.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No tracks selected - call select-tracks first")));
+    }
+
+    bool ok = trackeditInteraction()->changeTracksColor(tracks, colorIndex);
+    return make_response(request, make_ret(ok ? Ret::Code::Ok : Ret::Code::UnknownError,
+                                             std::string(ok ? "Track color set" : "Failed to set track color")));
 }
 
 Response AudacityCommandsController::handleEditCut(const Request& request)

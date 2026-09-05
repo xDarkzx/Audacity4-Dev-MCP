@@ -102,11 +102,11 @@ public:
     std::map<Command, ICommandDispatcher::CallBack> m_registered;
 };
 
-TEST_F(AudacityCommandsControllerTests, RegistersAllSixtyFiveCommands)
+TEST_F(AudacityCommandsControllerTests, RegistersAllSeventyEightCommands)
 {
     // project-new is registered but restricted to the no-project-open case -
     // see AudacityCommandsController::handleNewProject()
-    EXPECT_EQ(m_registered.size(), size_t(65));
+    EXPECT_EQ(m_registered.size(), size_t(78));
 }
 
 TEST_F(AudacityCommandsControllerTests, PlayStopDispatchesAndReportsPlaybackStatus)

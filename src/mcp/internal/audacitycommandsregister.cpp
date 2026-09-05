@@ -287,6 +287,159 @@ static const std::vector<CommandInfo> s_commandInfos = {
         Decoration()
     },
     CommandInfo{
+        Command("command://mcp/set-clip-pitch"),
+        TranslatableString("mcp", "Set clip pitch"),
+        TranslatableString("mcp", "Non-destructively change one clip's pitch in semitones, without processing any audio - reversible via reset-clip-pitch"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format, as returned by track-get-info");
+            schema.args["semitones"] = Arg(DataType::Float, u"Pitch shift in semitones (can be negative)");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/reset-clip-pitch"),
+        TranslatableString("mcp", "Reset clip pitch"),
+        TranslatableString("mcp", "Revert a clip's pitch change made via set-clip-pitch"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/set-clip-speed"),
+        TranslatableString("mcp", "Set clip speed"),
+        TranslatableString("mcp", "Non-destructively change one clip's playback speed, without processing any audio - reversible via reset-clip-speed"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            schema.args["speed"] = Arg(DataType::Float, u"Duration multiplier, NOT a playback-rate multiplier - 1.0 is normal, 2.0 makes the clip play twice as long (slower), 0.5 makes it half as long (faster). Confirmed live: new_duration = original_duration * speed.");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/reset-clip-speed"),
+        TranslatableString("mcp", "Reset clip speed"),
+        TranslatableString("mcp", "Revert a clip's speed change made via set-clip-speed"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/render-clip-pitch-speed"),
+        TranslatableString("mcp", "Render clip pitch/speed"),
+        TranslatableString("mcp", "Permanently bake a clip's pitch/speed changes into its audio - use once you're happy with a non-destructive preview from set-clip-pitch/set-clip-speed"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/reset-clip-pitch-speed"),
+        TranslatableString("mcp", "Reset clip pitch/speed"),
+        TranslatableString("mcp", "Revert both pitch and speed changes on a clip in one call"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/split-clip-at-silences"),
+        TranslatableString("mcp", "Split clip at silences"),
+        TranslatableString("mcp", "Automatically split one clip into multiple clips at its detected silence boundaries"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/split-range-at-silences"),
+        TranslatableString("mcp", "Split selection at silences"),
+        TranslatableString("mcp", "Automatically split every clip on the selected track(s) within a time range at detected silence boundaries - call select-tracks first"),
+        []() {
+            InputSchema schema;
+            schema.args["start"] = Arg(DataType::Float, u"Start time in seconds");
+            schema.args["end"] = Arg(DataType::Float, u"End time in seconds");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/trim-clip"),
+        TranslatableString("mcp", "Trim clip"),
+        TranslatableString("mcp", "Trim a clip's left or right edge inward by a delta in seconds, discarding that audio. Positive delta_sec shrinks the clip from that edge (confirmed live), for both left and right."),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            schema.args["side"] = Arg(DataType::String, u"\"left\" or \"right\"");
+            schema.args["delta_sec"] = Arg(DataType::Float, u"Positive shrinks the clip inward from this edge; negative grows it outward. Confirmed live for both sides.");
+            schema.args["min_clip_duration"] = Arg(DataType::Float, u"Minimum duration the clip must retain, in seconds. Default: 0");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/stretch-clip"),
+        TranslatableString("mcp", "Stretch clip"),
+        TranslatableString("mcp", "Grow or shrink a clip's left or right edge, revealing previously-trimmed audio when growing (or time-stretching if none remains). Same delta_sec sign convention as trim-clip - positive shrinks, negative grows - despite the name suggesting the opposite; confirmed live, not assumed."),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            schema.args["side"] = Arg(DataType::String, u"\"left\" or \"right\"");
+            schema.args["delta_sec"] = Arg(DataType::Float, u"Positive shrinks the clip inward from this edge; negative grows/reveals outward. Confirmed live for both sides - same sign convention as trim-clip.");
+            schema.args["min_clip_duration"] = Arg(DataType::Float, u"Minimum duration the clip must retain, in seconds. Default: 0");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/nearest-zero-crossing"),
+        TranslatableString("mcp", "Nearest zero crossing"),
+        TranslatableString("mcp", "Find the nearest zero-crossing time to a given timestamp, for precise, click-free edit points"),
+        []() {
+            InputSchema schema;
+            schema.args["time"] = Arg(DataType::Float, u"Time in seconds to search near");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/set-clip-color"),
+        TranslatableString("mcp", "Set clip color"),
+        TranslatableString("mcp", "Set a clip's color tag for visual organization"),
+        []() {
+            InputSchema schema;
+            schema.args["key"] = Arg(DataType::String, u"The clip's key, in \"trackId:itemId\" format");
+            schema.args["color_index"] = Arg(DataType::Float, u"0 (no custom color, inherit from track) to 9");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/set-track-color"),
+        TranslatableString("mcp", "Set track color"),
+        TranslatableString("mcp", "Set the color tag for the currently selected track(s) - call select-tracks first"),
+        []() {
+            InputSchema schema;
+            schema.args["color_index"] = Arg(DataType::Float, u"0 (no custom color, inherit default) to 9");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
         Command("command://mcp/edit-cut"),
         TranslatableString("mcp", "Cut"),
         TranslatableString("mcp", "Cut the current selection to the clipboard"),

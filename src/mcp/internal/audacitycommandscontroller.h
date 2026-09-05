@@ -121,6 +121,20 @@ private:
     muse::rcommand::Response handleTrackUnmuteAll(const muse::rcommand::Request& request);
     muse::rcommand::Response handleTrackMuteOrUnmuteAll(const muse::rcommand::Request& request, bool mute);
 
+    muse::rcommand::Response handleSetClipPitch(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleResetClipPitch(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSetClipSpeed(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleResetClipSpeed(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleRenderClipPitchSpeed(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleResetClipPitchSpeed(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSplitClipAtSilences(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSplitRangeAtSilences(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleTrimClip(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleStretchClip(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleNearestZeroCrossing(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSetClipColor(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSetTrackColor(const muse::rcommand::Request& request);
+
     muse::rcommand::Response handleEditCut(const muse::rcommand::Request& request);
     muse::rcommand::Response handleEditCopy(const muse::rcommand::Request& request);
     muse::rcommand::Response handleEditPaste(const muse::rcommand::Request& request);
