@@ -45,6 +45,7 @@
 #include "importexport/import/iimporter.h"
 #include "playback/itrackplaybackcontrol.h"
 #include "framework/global/io/ifilesystem.h"
+#include "project/imetadata.h"
 
 namespace au::mcp {
 struct CommandHistoryEntry {
@@ -76,6 +77,7 @@ public:
     muse::ContextInject<au::importexport::IImporter> importer { this };
     muse::ContextInject<au::playback::ITrackPlaybackControl> trackPlaybackControl { this };
     muse::GlobalInject<muse::io::IFileSystem> fileSystem;
+    muse::ContextInject<au::project::IMetadata> metadata { this };
 
     AudacityCommandsController(const muse::modularity::ContextPtr& ctx)
         : muse::Contextable(ctx) {}
@@ -96,6 +98,8 @@ private:
     muse::rcommand::Response handleSaveProject(const muse::rcommand::Request& request);
     muse::rcommand::Response handleRecentCommands(const muse::rcommand::Request& request);
     muse::rcommand::Response handleCommandStatus(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleProjectGetMetadata(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleProjectSetMetadata(const muse::rcommand::Request& request);
 
     muse::rcommand::Response handleListLabels(const muse::rcommand::Request& request);
     muse::rcommand::Response handleAddLabelTrack(const muse::rcommand::Request& request);

@@ -637,6 +637,29 @@ static const std::vector<CommandInfo> s_commandInfos = {
         Decoration()
     },
     CommandInfo{
+        Command("command://mcp/project-get-metadata"),
+        TranslatableString("mcp", "Get project metadata"),
+        TranslatableString("mcp", "Get project metadata tags: artist, track title, album, track number, year, comments"),
+        InputSchema(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/project-set-metadata"),
+        TranslatableString("mcp", "Set project metadata"),
+        TranslatableString("mcp", "Set one or more project metadata tags. Only the fields you pass are changed"),
+        []() {
+            InputSchema schema;
+            schema.args["artist"] = Arg(DataType::String, u"Artist name");
+            schema.args["track_title"] = Arg(DataType::String, u"Track title");
+            schema.args["album"] = Arg(DataType::String, u"Album title");
+            schema.args["track_number"] = Arg(DataType::String, u"Track number");
+            schema.args["year"] = Arg(DataType::String, u"Year");
+            schema.args["comments"] = Arg(DataType::String, u"Comments");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
         Command("command://mcp/track-get-info"),
         TranslatableString("mcp", "Get track info"),
         TranslatableString("mcp", "Get detailed info about one track by id, including its full clip list "

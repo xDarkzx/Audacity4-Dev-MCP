@@ -43,7 +43,7 @@ TEST_F(AudacityCommandsRegisterTests, CommandListHasFortyEightEntries)
 {
     // project-new is registered but restricted to the no-project-open case -
     // see AudacityCommandsController::handleNewProject()
-    EXPECT_EQ(m_register.commandList().size(), size_t(78));
+    EXPECT_EQ(m_register.commandList().size(), size_t(80));
 }
 
 TEST_F(AudacityCommandsRegisterTests, PlayStopCommandInfoIsPopulated)

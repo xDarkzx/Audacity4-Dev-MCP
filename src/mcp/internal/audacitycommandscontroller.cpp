@@ -289,6 +289,12 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/project-get-info"), [this](const Request& request) {
         return handleProjectGetInfo(request);
     });
+    registerCommand(Command("command://mcp/project-get-metadata"), [this](const Request& request) {
+        return handleProjectGetMetadata(request);
+    });
+    registerCommand(Command("command://mcp/project-set-metadata"), [this](const Request& request) {
+        return handleProjectSetMetadata(request);
+    });
     registerCommand(Command("command://mcp/track-get-info"), [this](const Request& request) {
         return handleTrackGetInfo(request);
     });
@@ -1261,6 +1267,94 @@ Response AudacityCommandsController::handleTrackMuteAll(const Request& request)
 Response AudacityCommandsController::handleTrackUnmuteAll(const Request& request)
 {
     return handleTrackMuteOrUnmuteAll(request, false);
+}
+
+Response AudacityCommandsController::handleProjectGetMetadata(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!metadata()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IMetadata not available")));
+    }
+
+    au::project::ProjectMeta meta = metadata()->tags();
+
+    JsonObject root;
+    root["artist"] = meta.artist;
+    root["trackTitle"] = meta.trackTitle;
+    root["album"] = meta.album;
+    root["trackNumber"] = meta.trackNumber;
+    root["year"] = meta.year;
+    root["comments"] = meta.comments;
+
+    JsonDocument doc(root);
+    std::string json(doc.toJson(JsonDocument::Format::Compact).constChar());
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("project-get-metadata")));
+    response.data = json;
+    return response;
+}
+
+Response AudacityCommandsController::handleProjectSetMetadata(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!metadata()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IMetadata not available")));
+    }
+
+    au::project::ProjectMeta meta = metadata()->tags();
+    std::vector<std::string> applied;
+
+    muse::Val artistVal = request.query.param("artist");
+    if (!artistVal.isNull()) {
+        meta.artist = artistVal.toString();
+        applied.push_back("artist");
+    }
+    muse::Val titleVal = request.query.param("track_title");
+    if (!titleVal.isNull()) {
+        meta.trackTitle = titleVal.toString();
+        applied.push_back("track_title");
+    }
+    muse::Val albumVal = request.query.param("album");
+    if (!albumVal.isNull()) {
+        meta.album = albumVal.toString();
+        applied.push_back("album");
+    }
+    muse::Val trackNumVal = request.query.param("track_number");
+    if (!trackNumVal.isNull()) {
+        meta.trackNumber = trackNumVal.toString();
+        applied.push_back("track_number");
+    }
+    muse::Val yearVal = request.query.param("year");
+    if (!yearVal.isNull()) {
+        meta.year = yearVal.toString();
+        applied.push_back("year");
+    }
+    muse::Val commentsVal = request.query.param("comments");
+    if (!commentsVal.isNull()) {
+        meta.comments = commentsVal.toString();
+        applied.push_back("comments");
+    }
+
+    if (applied.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("No properties given - pass at least one of "
+                                                              "artist/track_title/album/track_number/year/comments")));
+    }
+
+    metadata()->setTags(meta);
+
+    std::string message = "Updated: ";
+    for (size_t i = 0; i < applied.size(); ++i) {
+        message += applied[i];
+        if (i + 1 < applied.size()) {
+            message += ", ";
+        }
+    }
+    return make_response(request, make_ret(Ret::Code::Ok, message));
 }
 
 Response AudacityCommandsController::handleSetClipPitch(const Request& request)
