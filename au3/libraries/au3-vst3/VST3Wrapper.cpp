@@ -654,6 +654,13 @@ void VST3Wrapper::FetchSettings(EffectSettings& settings, bool resetState)
     //TODO: perform version check
     {
         auto componentHandler = static_cast<ComponentHandler*>(mComponentHandler.get());
+        //Preserve edits that have been made but not yet delivered. ResetCache() is here to
+        //drop the echo callbacks the state restore below provokes, but it cannot tell those
+        //apart from a real pending edit, and FetchSettings runs on any parameter read or
+        //settings-changed notification - both of which happen during a parameter write.
+        //Without this, writing a parameter while the plug-in's editor is open destroys the
+        //write before anything can flush it, and the caller is still told it succeeded.
+        componentHandler->FlushCache(settings);
         componentHandler->ResetCache();
         componentHandler->BeginStateChange(settings);
         auto cleanup = finally([&] { componentHandler->EndStateChange(); });

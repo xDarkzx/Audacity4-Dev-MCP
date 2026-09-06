@@ -182,6 +182,21 @@ bool VstParameterExtractorService::setParameterValue(EffectInstance* instance,
     const double normalizedValue = VST3ParameterExtraction::fullRangeToNormalized(instance, paramId, fullRangeValue);
 
     const bool result = VST3ParameterExtraction::setParameterValue(instance, paramId, normalizedValue, settingsAccess.get());
+
+    // Claim the edit into *this* settings object straight away, rather than leaving it in
+    // ComponentHandler's cache until the gesture ends.
+    //
+    // The cache is owned by the wrapper, not by any one EffectSettings, and it is drained by
+    // whichever FetchSettings() runs first. EffectParametersProvider::setParameterValue reads
+    // the parameter back and emits parameterChanged as soon as this returns, and both of those
+    // reach FetchSettings - the read directly, the notification via an open editor's
+    // settingsToView(). Either one moves the edit into a different settings object, and the
+    // store that follows the gesture then finds nothing pending and writes stale state, while
+    // still reporting success. Confirmed live with FabFilter Pro-Q 3 and its editor open.
+    if (result && settingsAccess) {
+        VST3ParameterExtraction::flushAndStoreSettings(instance, settingsAccess.get());
+    }
+
     return result;
 }
 
@@ -227,16 +242,20 @@ void VstParameterExtractorService::endParameterGesture(EffectInstance* instance,
         return;
     }
 
-    // Call VST3 endEdit
-    VST3ParameterExtraction::endEdit(instance, paramId);
-
-    // Get the stored settings access
+    // Store before ending the gesture, not after. endEdit() invokes
+    // VST3Wrapper::ParamChangedHandler, which an open plug-in editor answers by running
+    // settingsToView() -> FetchSettings(), and anything still uncommitted at that point is
+    // at the mercy of that call. setParameterValue() above already commits each edit as it
+    // is made, so by here there is normally nothing left pending; this ordering just avoids
+    // reintroducing the window for any caller that sets a value without going through it.
     auto it = m_gestureSettings.find(instance);
     if (it != m_gestureSettings.end() && it->second) {
-        // Now save the final state
         VST3ParameterExtraction::flushAndStoreSettings(instance, it->second.get());
         m_gestureSettings.erase(it);
     }
+
+    // Call VST3 endEdit
+    VST3ParameterExtraction::endEdit(instance, paramId);
 }
 
 void VstParameterExtractorService::onInstanceDestroyed(EffectInstance* instance)
