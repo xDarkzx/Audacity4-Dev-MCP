@@ -17,13 +17,28 @@ REM   vcvars64          sets INCLUDE, without which clang cannot find MSVC's
 REM                     standard library and every file fails with "'array' file not found"
 
 setlocal enabledelayedexpansion
-set "VCVARS=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
-set "TIDY=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-tidy.exe"
-set "BUILD=build/audacity-debug"
+
+REM Locate Visual Studio rather than assuming an edition or version. Set VSINSTALL,
+REM VCVARS or TIDY in the environment to override any of it.
+if not defined VSINSTALL (
+    set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+    if exist "!VSWHERE!" (
+        for /f "usebackq delims=" %%I in (`"!VSWHERE!" -latest -products * -property installationPath 2^>nul`) do set "VSINSTALL=%%I"
+    )
+)
+if not defined VCVARS set "VCVARS=%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+if not defined TIDY set "TIDY=%VSINSTALL%\VC\Tools\Llvm\x64\bin\clang-tidy.exe"
+if not defined BUILD set "BUILD=build/audacity-debug"
 set "FILTER=au3/libraries/au3-vst3|src/mcp|src/effects/vst"
 
 if not exist "%TIDY%" (
     echo clang-tidy not found at "%TIDY%"
+    echo It ships with Visual Studio - install the "C++ Clang tools for Windows"
+    echo component, or set TIDY to a clang-tidy.exe yourself.
+    exit /b 1
+)
+if not exist "%VCVARS%" (
+    echo vcvars64.bat not found at "%VCVARS%" - set VSINSTALL or VCVARS.
     exit /b 1
 )
 if not exist "%BUILD%/compile_commands.json" (
