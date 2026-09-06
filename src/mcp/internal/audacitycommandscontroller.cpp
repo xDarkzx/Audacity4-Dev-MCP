@@ -1434,21 +1434,35 @@ Response AudacityCommandsController::handleTrackMuteOrUnmuteAll(const Request& r
         return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No trackedit project available")));
     }
 
-    // NOTE: iterates the real track list directly by id (includes label
-    // tracks - setMuted on one is a harmless no-op) rather than a 0-based
+    // NOTE: iterates the real track list directly by id rather than a 0-based
     // index, deliberately avoiding the mismatch risk that blocked this
     // command earlier: trackeditProject->trackList() includes label tracks,
     // but project-get-info's (index-facing) track list does not - looping
     // "0..count" and calling the index-based track-set-properties would
     // silently hit the wrong track whenever a label track sits before an
     // audio track.
+    //
+    //! Label tracks are skipped rather than passed through. An earlier note here
+    //! claimed muting one was a harmless no-op; it is not. setMuted() reaches
+    //! Au3TrackPlaybackControl::setMuteOrSolo(), which resolves the id with
+    //! DomAccessor::findWaveTrack() - that returns null for a label track and trips
+    //! its IF_ASSERT_FAILED, taking the application down in a debug build
+    //! (confirmed live: adding a label and then calling this command crashed it).
     int count = 0;
+    int skipped = 0;
     for (const au::trackedit::Track& track : trackeditProject->trackList()) {
+        if (track.type == au::trackedit::TrackType::Label) {
+            ++skipped;
+            continue;
+        }
         trackPlaybackControl()->setMuted(track.id, mute);
         ++count;
     }
 
     std::string message = (mute ? "Muted " : "Unmuted ") + std::to_string(count) + " track(s)";
+    if (skipped > 0) {
+        message += " (" + std::to_string(skipped) + " label track(s) skipped - they have no mute state)";
+    }
     return make_response(request, make_ret(Ret::Code::Ok, message));
 }
 
