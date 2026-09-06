@@ -108,6 +108,7 @@ private:
     muse::rcommand::Response handleUpdateLabelText(const muse::rcommand::Request& request);
     muse::rcommand::Response handleUpdateLabelTime(const muse::rcommand::Request& request);
 
+    muse::rcommand::Response handleApplyEffects(const muse::rcommand::Request& request);
     muse::rcommand::Response handleApplyEffect(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSelectAll(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSelectTime(const muse::rcommand::Request& request);
@@ -175,6 +176,7 @@ private:
     muse::rcommand::Response handleRemoveRealtimeEffect(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSetRealtimeEffectActive(const muse::rcommand::Request& request);
     muse::rcommand::Response handleListEffectParameters(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleSetEffectParameters(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSetEffectParameter(const muse::rcommand::Request& request);
     muse::rcommand::Response handleListEffectPresets(const muse::rcommand::Request& request);
     muse::rcommand::Response handleApplyEffectPreset(const muse::rcommand::Request& request);

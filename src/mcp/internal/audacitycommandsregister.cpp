@@ -151,6 +151,26 @@ static const std::vector<CommandInfo> s_commandInfos = {
         Decoration()
     },
     CommandInfo{
+        Command("command://mcp/apply-effects"),
+        TranslatableString("mcp", "Apply several effects in sequence"),
+        TranslatableString("mcp", "Apply a sequence of destructive effects in one call. Prefer this over repeated "
+                                    "apply-effect calls for a cleanup or mastering chain: the selection is made "
+                                    "once rather than before every effect, and processing stops at the first "
+                                    "failure so the audio is never left in a state the caller cannot reason "
+                                    "about - the response names exactly which effects were applied. Note that "
+                                    "each effect is still its own undo step."),
+        []() {
+            InputSchema schema;
+            schema.args["effect_ids"] = Arg(DataType::String, u"'|' separated effect ids or titles, applied in order, "
+                                                              u"e.g. \"Normalize|Compressor\"");
+            schema.args["params_list"] = Arg(DataType::String, u"'|' separated params, one entry per effect (empty "
+                                                               u"entry for none), e.g. \"PeakLevel=-1.0|Threshold=-12 Ratio=4\"");
+            schema.args["select_all"] = Arg(DataType::Boolean, u"Select all audio first (default true)");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
         Command("command://mcp/apply-effect"),
         TranslatableString("mcp", "Apply effect"),
         TranslatableString("mcp", "Apply a built-in effect to the current selection by name, with optional parameters"),
@@ -776,6 +796,28 @@ static const std::vector<CommandInfo> s_commandInfos = {
             InputSchema schema;
             schema.args["track_id"] = Arg(DataType::Integer, u"Track id from project-get-info, or -2 for the Master bus");
             schema.args["index"] = Arg(DataType::Integer, u"Position in the chain, from list-realtime-effects");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/set-effect-parameters"),
+        TranslatableString("mcp", "Set several effect parameters at once"),
+        TranslatableString("mcp", "Set several parameters on one realtime effect in a single commit. Prefer this "
+                                    "over repeated set-effect-parameter calls whenever more than one value is "
+                                    "involved: the whole batch is written before anything is flushed, so the "
+                                    "plug-in is never left in a half-configured state that can be heard while "
+                                    "it is processing - an EQ band enabled before its frequency has been set, "
+                                    "for instance - and it produces one settings commit rather than one per "
+                                    "value. Values follow the same scale as set-effect-parameter. Nothing is "
+                                    "written if any entry fails to parse."),
+        []() {
+            InputSchema schema;
+            schema.args["track_id"] = Arg(DataType::Integer, u"Track id from project-get-info, or -2 for the Master bus");
+            schema.args["index"] = Arg(DataType::Integer, u"Position in the chain, from list-realtime-effects");
+            schema.args["parameters"] = Arg(DataType::String, u"Semicolon separated \"id=value\" pairs, e.g. "
+                                                              u"\"0=1;2=4.906891;3=-1.5\" - ids come from "
+                                                              u"list-effect-parameters");
             return schema;
         }(),
         Decoration()
