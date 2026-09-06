@@ -69,18 +69,44 @@ void McpModuleContext::onInit(const muse::IApplication::RunMode& mode)
     }
 
     auto commandsRegister = globalIoc()->resolve<muse::rcommand::ICommandsRegister>(mname);
-    if (commandsRegister) {
-        commandsRegister->reg(std::make_shared<AudacityCommandsRegister>());
+    if (!commandsRegister) {
+        return;
     }
 
+    //! The commands register is global, but a module context is not. Opening a second
+    //! context in the same process - File > New does exactly this, via
+    //! SingleProcessProvider::openNewWindow and BaseApplication::setupNewContext -
+    //! constructs a fresh McpModuleContext whose own m_initialized starts out false, so a
+    //! per-instance flag cannot prevent re-registration. Registering a second time trips
+    //! the assert in CommandsRegister::reg and installs a duplicate set of action
+    //! handlers, so ask the register itself rather than trusting a per-context flag.
+    if (commandsRegister->moduleRegister(mname)) {
+        return;
+    }
+
+    commandsRegister->reg(std::make_shared<AudacityCommandsRegister>());
     m_commandsController->init();
+
+    //! Also records that *this* context owns the registration - see onDeinit().
     m_initialized = true;
 }
 
 void McpModuleContext::onDeinit()
 {
+    //! Only the context that actually registered may unregister. Tearing down a second
+    //! context would otherwise remove the commands the surviving context is still
+    //! serving, silently leaving the bridge connected but unable to dispatch anything.
+    if (!m_initialized) {
+        return;
+    }
+
     auto commandsRegister = globalIoc()->resolve<muse::rcommand::ICommandsRegister>(mname);
     if (commandsRegister) {
-        commandsRegister->unreg(commandsRegister->moduleRegister(mname));
+        //! moduleRegister() returns null if it was already removed; unreg() asserts on null.
+        if (const auto module = commandsRegister->moduleRegister(mname)) {
+            commandsRegister->unreg(module);
+        }
     }
+
+    m_initialized = false;
 }
