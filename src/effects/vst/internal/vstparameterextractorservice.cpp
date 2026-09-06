@@ -194,7 +194,14 @@ String VstParameterExtractorService::getParameterValueString(EffectInstance* ins
         return {};
     }
 
-    std::string result = VST3ParameterExtraction::getParameterValueString(instance, paramId, value);
+    // Convert "Full Range" value to normalized [0,1] for the VST3 API - mirrors the conversion
+    // setParameterValue already does above. Without it, getParamStringByValue (which the VST3 spec
+    // defines as taking a normalized value) was being handed a raw full-range number as if it were
+    // already normalized, producing garbage/wrong-unit display strings for out-of-[0,1] inputs
+    // (confirmed live: a Hz-scale value formatted as an astronomically large number, or as "50.0%").
+    const double normalizedValue = VST3ParameterExtraction::fullRangeToNormalized(instance, paramId, value);
+
+    std::string result = VST3ParameterExtraction::getParameterValueString(instance, paramId, normalizedValue);
     return String::fromStdString(result);
 }
 
