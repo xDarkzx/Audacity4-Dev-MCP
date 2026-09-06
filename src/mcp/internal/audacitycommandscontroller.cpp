@@ -312,6 +312,9 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/list-effects"), [this](const Request& request) {
         return handleListEffects(request);
     });
+    registerCommand(Command("command://mcp/add-realtime-effects"), [this](const Request& request) {
+        return handleAddRealtimeEffects(request);
+    });
     registerCommand(Command("command://mcp/add-realtime-effect"), [this](const Request& request) {
         return handleAddRealtimeEffect(request);
     });
@@ -931,6 +934,12 @@ Response AudacityCommandsController::handleApplyEffects(const Request& request)
         std::string item;
         while (std::getline(ss, item, '|')) {
             out.push_back(item);
+        }
+        //! getline yields nothing after a trailing separator, so "a|b|" reads as two
+        //! fields. The last entry is empty whenever the final effect takes no
+        //! parameters, and dropping it would fail the one-to-one count check.
+        if (!in.empty() && in.back() == '|') {
+            out.push_back(std::string());
         }
         return out;
     };
@@ -2712,6 +2721,145 @@ au::effects::RealtimeEffectStatePtr AudacityCommandsController::realtimeEffectAt
         return nullptr;
     }
     return (*stack)[static_cast<size_t>(index)];
+}
+
+Response AudacityCommandsController::handleAddRealtimeEffects(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+    if (!realtimeEffectService()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IRealtimeEffectService not available")));
+    }
+
+    muse::Val trackIdVal = request.query.param("track_id");
+    const std::string effectIds = request.query.param("effect_ids").toString();
+    if (trackIdVal.isNull() || effectIds.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'track_id'/'effect_ids' arguments "
+                                                              "('effect_ids' is '|' separated; -2 is the Master bus)")));
+    }
+
+    au::trackedit::TrackId trackId = au::trackedit::INVALID_TRACK;
+    try {
+        trackId = static_cast<au::trackedit::TrackId>(trackIdVal.toInt64());
+    } catch (const std::exception& e) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Invalid 'track_id' argument: ") + e.what()));
+    }
+
+    auto split = [](const std::string& in, char sep) {
+        std::vector<std::string> out;
+        std::stringstream ss(in);
+        std::string item;
+        while (std::getline(ss, item, sep)) {
+            out.push_back(item);
+        }
+        //! getline yields nothing after a trailing separator, so "a|b|" reads as two
+        //! fields. The last entry is empty whenever the final effect takes no
+        //! parameters, and dropping it would fail the one-to-one count check.
+        if (!in.empty() && in.back() == sep) {
+            out.push_back(std::string());
+        }
+        return out;
+    };
+
+    //! Effect ids embed a path and a hash, so '|' separates the effects and ';'
+    //! the "id=value" pairs within one effect's parameters - neither appears in an
+    //! effect id or in a parameter id.
+    const std::vector<std::string> ids = split(effectIds, '|');
+    std::vector<std::string> paramSets = split(request.query.param("parameters_list").toString(), '|');
+    if (paramSets.empty()) {
+        paramSets.resize(ids.size());
+    }
+    if (paramSets.size() != ids.size()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("'parameters_list' has ") + std::to_string(paramSets.size())
+                                                 + " entries but 'effect_ids' has " + std::to_string(ids.size())
+                                                 + " - they must correspond one to one (use an empty entry for none)"));
+    }
+
+    std::vector<std::string> added;
+    for (size_t i = 0; i < ids.size(); ++i) {
+        if (ids[i].empty()) {
+            continue;
+        }
+
+        au::effects::RealtimeEffectStatePtr state
+            =realtimeEffectService()->addRealtimeEffect(trackId, String::fromStdString(ids[i]));
+        if (!state) {
+            std::string message = "Added " + std::to_string(added.size()) + " of " + std::to_string(ids.size())
+                                  + " effects, then '" + ids[i] + "' failed - check the effect_id is exact "
+                                  "(the \"id\" field from list-effects, not the title) and that it is realtime capable";
+            if (!added.empty()) {
+                message += ". Already added: ";
+                for (size_t j = 0; j < added.size(); ++j) {
+                    message += added[j] + (j + 1 < added.size() ? ", " : "");
+                }
+            }
+            return make_response(request, make_ret(Ret::Code::UnknownError, message));
+        }
+
+        std::optional<std::vector<au::effects::RealtimeEffectStatePtr> > stack = realtimeEffectService()->effectStack(trackId);
+        const int index = stack.has_value() ? static_cast<int>(stack->size()) - 1 : -1;
+        added.push_back(ids[i]);
+
+        if (paramSets[i].empty() || index < 0) {
+            continue;
+        }
+
+        //! Parameters are applied here, while this effect is freshly added and its
+        //! editor cannot yet be open. That ordering matters: a write made while the
+        //! plug-in's own editor is open is reverted (its view pushes the stored
+        //! settings back over it), so building the chain and configuring it in one
+        //! call is what makes the configuration stick.
+        au::effects::EffectInstanceId instanceId = realtimeEffectInstanceId(state);
+        if (instanceId == au::effects::EffectInstanceId() || !effectParametersProvider()) {
+            continue;
+        }
+
+        std::vector<std::pair<muse::String, double> > writes;
+        bool parsed = true;
+        for (const std::string& pair : split(paramSets[i], ';')) {
+            if (pair.empty()) {
+                continue;
+            }
+            const auto eq = pair.find('=');
+            if (eq == std::string::npos || eq == 0 || eq + 1 >= pair.size()) {
+                parsed = false;
+                break;
+            }
+            try {
+                writes.emplace_back(String::fromStdString(pair.substr(0, eq)),
+                                    toFiniteDouble(muse::Val(pair.substr(eq + 1))));
+            } catch (const std::exception&) {
+                parsed = false;
+                break;
+            }
+        }
+        if (!parsed) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Added '") + ids[i] + "' but its parameters are malformed - "
+                                                     "expected \"id=value\" pairs separated by ';'"));
+        }
+
+        //! Same shape as set-effect-parameters: open every gesture, write every
+        //! value, then close them, so the whole set lands in one commit.
+        for (const auto& w : writes) {
+            effectParametersProvider()->beginParameterGesture(instanceId, w.first);
+        }
+        for (const auto& w : writes) {
+            effectParametersProvider()->setParameterValue(instanceId, w.first, w.second);
+        }
+        for (const auto& w : writes) {
+            effectParametersProvider()->endParameterGesture(instanceId, w.first);
+        }
+    }
+
+    std::string message = "Added " + std::to_string(added.size()) + " realtime effects: ";
+    for (size_t i = 0; i < added.size(); ++i) {
+        message += added[i] + (i + 1 < added.size() ? ", " : "");
+    }
+    return make_response(request, make_ret(Ret::Code::Ok, message));
 }
 
 Response AudacityCommandsController::handleAddRealtimeEffect(const Request& request)

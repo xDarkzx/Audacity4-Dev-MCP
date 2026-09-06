@@ -171,6 +171,7 @@ private:
     muse::rcommand::Response handleSelectClip(const muse::rcommand::Request& request);
     muse::rcommand::Response handleTransportGetPlayPosition(const muse::rcommand::Request& request);
     muse::rcommand::Response handleListEffects(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleAddRealtimeEffects(const muse::rcommand::Request& request);
     muse::rcommand::Response handleAddRealtimeEffect(const muse::rcommand::Request& request);
     muse::rcommand::Response handleListRealtimeEffects(const muse::rcommand::Request& request);
     muse::rcommand::Response handleRemoveRealtimeEffect(const muse::rcommand::Request& request);

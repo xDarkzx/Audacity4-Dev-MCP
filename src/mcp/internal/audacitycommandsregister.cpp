@@ -733,6 +733,29 @@ static const std::vector<CommandInfo> s_commandInfos = {
         Decoration()
     },
     CommandInfo{
+        Command("command://mcp/add-realtime-effects"),
+        TranslatableString("mcp", "Build a realtime effect chain"),
+        TranslatableString("mcp", "Add several realtime effects to a track in one call, each configured as it is "
+                                    "added. Prefer this over repeated add-realtime-effect calls when building a "
+                                    "chain: the effects arrive already set up, so nothing has to be adjusted "
+                                    "afterwards, and each effect's parameters land in a single commit. Parameters "
+                                    "are applied while the effect is freshly added and its editor cannot be open "
+                                    "yet, which is what makes them stick - a write made while a plug-in's own "
+                                    "editor is open is pushed back to the stored settings. Stops at the first "
+                                    "effect that cannot be added, naming what was already added."),
+        []() {
+            InputSchema schema;
+            schema.args["track_id"] = Arg(DataType::Integer, u"Track id from project-get-info, or -2 for the Master bus");
+            schema.args["effect_ids"] = Arg(DataType::String, u"'|' separated PluginIDs from list-effects' \"id\" field "
+                                                              u"(not titles), added in order");
+            schema.args["parameters_list"] = Arg(DataType::String, u"'|' separated parameter sets, one per effect (empty "
+                                                                   u"entry for none). Each is \"id=value;id=value\", "
+                                                                   u"ids from list-effect-parameters");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
         Command("command://mcp/add-realtime-effect"),
         TranslatableString("mcp", "Add realtime effect"),
         TranslatableString("mcp", "Add a non-destructive realtime effect to a track's (or the Master "
