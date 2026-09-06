@@ -352,11 +352,11 @@ void AudacityCommandsController::init()
 
 void AudacityCommandsController::registerCommand(const Command& command, const Handler& handler)
 {
-    //! NOLINTNEXTLINE(bugprone-exception-escape) - the body is wrapped in a catch-all
-    //! below, so nothing escapes in practice. The check still reports it because it
-    //! treats every call it cannot prove noexcept, including the fallback Response
-    //! construction itself, as able to throw; the only paths left are allocation
-    //! failures, where there is nothing useful left to do anyway.
+    //! The body is wrapped in a catch-all below, so nothing escapes in practice. The
+    //! check still reports it because it treats every call it cannot prove noexcept,
+    //! including the fallback Response construction itself, as able to throw; the only
+    //! paths left are allocation failures, where there is nothing useful left to do.
+    //! NOLINTNEXTLINE(bugprone-exception-escape)
     commandDispatcher()->onRequest(this, command, [this, command, handler](const Request& request) -> Response {
         try {
         //! Arguments arrive from outside the application and several muse::Val
