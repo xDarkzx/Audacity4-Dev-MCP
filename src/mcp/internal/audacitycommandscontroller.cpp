@@ -54,10 +54,16 @@ static std::string isoTimestamp(const std::chrono::system_clock::time_point& tp)
     std::time_t t = std::chrono::system_clock::to_time_t(tp);
     std::tm tmUtc {};
 #ifdef _WIN32
-    gmtime_s(&tmUtc, &t);
+    const bool ok = gmtime_s(&tmUtc, &t) == 0;
 #else
-    gmtime_r(&t, &tmUtc);
+    const bool ok = gmtime_r(&t, &tmUtc) != nullptr;
 #endif
+    //! Checked rather than assumed: tmUtc is zero initialised, so a failure here
+    //! would otherwise be reported as a timestamp in the year 1900 rather than as
+    //! an error.
+    if (!ok) {
+        return std::string("unknown");
+    }
     std::ostringstream oss;
     oss << std::put_time(&tmUtc, "%Y-%m-%dT%H:%M:%SZ");
     return oss.str();
@@ -346,7 +352,13 @@ void AudacityCommandsController::init()
 
 void AudacityCommandsController::registerCommand(const Command& command, const Handler& handler)
 {
+    //! NOLINTNEXTLINE(bugprone-exception-escape) - the body is wrapped in a catch-all
+    //! below, so nothing escapes in practice. The check still reports it because it
+    //! treats every call it cannot prove noexcept, including the fallback Response
+    //! construction itself, as able to throw; the only paths left are allocation
+    //! failures, where there is nothing useful left to do anyway.
     commandDispatcher()->onRequest(this, command, [this, command, handler](const Request& request) -> Response {
+        try {
         //! Arguments arrive from outside the application and several muse::Val
         //! conversions throw on malformed input - Val::toDouble() calls std::stod(),
         //! which raises std::invalid_argument for a non-numeric string. An exception
@@ -367,8 +379,27 @@ void AudacityCommandsController::registerCommand(const Command& command, const H
             }
         }();
 
-        recordHistory(std::to_string(request.callId), command.toString(), response.ret.success(), response.ret.text());
+        //! Also guarded, and deliberately so: this runs after the handler has already
+        //! produced its result, and it allocates, so an exception here would escape
+        //! past the guard above and defeat the whole point of it. Failing to record
+        //! history must never change what the caller is told about their command.
+        try {
+            recordHistory(std::to_string(request.callId), command.toString(), response.ret.success(), response.ret.text());
+        } catch (...) { // NOLINT(bugprone-empty-catch) - see below
+            //! Intentionally swallowed. The only failure mode is allocation, and the
+            //! command itself has already succeeded or failed on its own terms; there
+            //! is nothing to report to the caller that would not be more misleading
+            //! than saying nothing, and logging here would allocate too.
+        }
+
         return response;
+    } catch (...) {
+        //! Outermost guard, so the "nothing escapes" guarantee above is actually
+        //! total. The catch handlers above allocate while building their error strings,
+        //! so they can themselves throw; returning a default-constructed Response
+        //! reports a plain failure without allocating anything further.
+        return Response();
+    }
     });
 }
 
