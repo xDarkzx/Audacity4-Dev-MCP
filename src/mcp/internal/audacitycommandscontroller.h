@@ -104,6 +104,7 @@ private:
     muse::rcommand::Response handleListLabels(const muse::rcommand::Request& request);
     muse::rcommand::Response handleAddLabelTrack(const muse::rcommand::Request& request);
     muse::rcommand::Response handleAddLabel(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleAddLabels(const muse::rcommand::Request& request);
     muse::rcommand::Response handleRemoveLabel(const muse::rcommand::Request& request);
     muse::rcommand::Response handleUpdateLabelText(const muse::rcommand::Request& request);
     muse::rcommand::Response handleUpdateLabelTime(const muse::rcommand::Request& request);

@@ -115,6 +115,21 @@ static const std::vector<CommandInfo> s_commandInfos = {
         Decoration()
     },
     CommandInfo{
+        Command("command://mcp/add-labels"),
+        TranslatableString("mcp", "Add labels"),
+        TranslatableString("mcp", "Add many labels at given times in one call, instead of selecting a range and adding a "
+                                 "label per label"),
+        []() {
+            InputSchema schema;
+            schema.args["labels"] = Arg(DataType::String,
+                                        u"One label per line as \"start\\tend\\ttext\" - the same layout Audacity's own "
+                                        u"label files use. Text is optional; a point label has start == end. Nothing is "
+                                        u"added if any line is malformed.");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
         Command("command://mcp/remove-label"),
         TranslatableString("mcp", "Remove label"),
         TranslatableString("mcp", "Remove a label by its key"),

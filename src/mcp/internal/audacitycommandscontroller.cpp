@@ -123,6 +123,9 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/add-label"), [this](const Request& request) {
         return handleAddLabel(request);
     });
+    registerCommand(Command("command://mcp/add-labels"), [this](const Request& request) {
+        return handleAddLabels(request);
+    });
     registerCommand(Command("command://mcp/remove-label"), [this](const Request& request) {
         return handleRemoveLabel(request);
     });
@@ -825,6 +828,132 @@ Response AudacityCommandsController::handleAddLabel(const Request& request)
 
     std::string message = "Label added with key " + labelKeyToString(key);
     return make_response(request, make_ret(Ret::Code::Ok, message));
+}
+
+Response AudacityCommandsController::handleAddLabels(const Request& request)
+{
+    if (!hasOpenProject()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No project is currently open")));
+    }
+
+    if (!trackeditInteraction() || !selectionController() || !labelsInteraction()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("ITrackeditInteraction/ISelectionController/ILabelsInteraction "
+                                                              "not available")));
+    }
+
+    const std::string labels = request.query.param("labels").toString();
+    if (labels.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Missing required 'labels' argument - one label per line as "
+                                                              "\"start\\tend\\ttext\", the same layout Audacity's own label "
+                                                              "files use")));
+    }
+
+    struct PendingLabel
+    {
+        double start = 0.0;
+        double end = 0.0;
+        std::string text;
+    };
+
+    //! Parsed in full before anything is written, so a malformed line is reported instead
+    //! of leaving a half-applied run of labels behind for the caller to find and undo.
+    std::vector<PendingLabel> pending;
+    std::stringstream lineStream(labels);
+    std::string line;
+    std::size_t lineNumber = 0;
+    while (std::getline(lineStream, line, '\n')) {
+        ++lineNumber;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty()) {
+            continue;
+        }
+
+        const auto firstTab = line.find('\t');
+        const auto secondTab = firstTab == std::string::npos ? std::string::npos : line.find('\t', firstTab + 1);
+        if (firstTab == std::string::npos) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Malformed label on line ") + std::to_string(lineNumber)
+                                                     + " - expected \"start\\tend\\ttext\""));
+        }
+
+        PendingLabel item;
+        try {
+            item.start = toFiniteDouble(muse::Val(line.substr(0, firstTab)));
+            item.end = toFiniteDouble(muse::Val(secondTab == std::string::npos
+                                                ? line.substr(firstTab + 1)
+                                                : line.substr(firstTab + 1, secondTab - firstTab - 1)));
+        } catch (const std::exception& e) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Invalid time on label line ") + std::to_string(lineNumber)
+                                                     + ": " + e.what()));
+        }
+
+        if (item.end < item.start) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Label on line ") + std::to_string(lineNumber)
+                                                     + " ends before it starts"));
+        }
+
+        if (secondTab != std::string::npos) {
+            item.text = line.substr(secondTab + 1);
+        }
+        pending.push_back(std::move(item));
+    }
+
+    if (pending.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("No labels to add")));
+    }
+
+    //! Each label still has to be placed by selecting its range and adding at the
+    //! selection - see the note on handleAddLabel for why that is the only placement path
+    //! that honours the requested time. What this saves is the round trip per label, not
+    //! the work: adding a transcript's worth of labels was two calls each.
+    std::vector<std::string> keys;
+    keys.reserve(pending.size());
+    for (std::size_t i = 0; i < pending.size(); ++i) {
+        const PendingLabel& item = pending[i];
+        selectionController()->setSelectedAllAudioData(item.start, item.end);
+
+        if (!trackeditInteraction()->addLabelToSelection()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Added ") + std::to_string(keys.size()) + " of "
+                                                     + std::to_string(pending.size()) + " labels, then failed on the one at "
+                                                     + std::to_string(item.start) + "s"));
+        }
+
+        const au::trackedit::LabelKeyList selected = selectionController()->selectedLabels();
+        if (selected.empty()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                     std::string("Added ") + std::to_string(keys.size() + 1) + " of "
+                                                     + std::to_string(pending.size())
+                                                     + " labels, but the key of the last one could not be determined"));
+        }
+
+        const au::trackedit::LabelKey key = selected.front();
+        if (!item.text.empty()) {
+            labelsInteraction()->changeLabelTitle(key, String::fromStdString(item.text));
+        }
+        keys.push_back(labelKeyToString(key));
+    }
+
+    JsonArray keyArr;
+    for (const std::string& k : keys) {
+        keyArr << k;
+    }
+
+    JsonObject root;
+    root["added"] = static_cast<int>(keys.size());
+    root["keys"] = keyArr;
+
+    JsonDocument doc(root);
+    Response response = make_response(request, make_ret(Ret::Code::Ok,
+                                                        std::string("Added ") + std::to_string(keys.size()) + " labels"));
+    response.data = std::string(doc.toJson(JsonDocument::Format::Compact).constChar());
+    return response;
 }
 
 Response AudacityCommandsController::handleRemoveLabel(const Request& request)
