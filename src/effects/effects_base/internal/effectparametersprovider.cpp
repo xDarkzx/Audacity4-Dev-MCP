@@ -226,34 +226,49 @@ void EffectParametersProvider::beginParameterGesture(EffectInstanceId instanceId
 
 void EffectParametersProvider::endParameterGesture(EffectInstanceId instanceId, const String& parameterId)
 {
+    //! No early return before the bookkeeping below. The instance can go away between
+    //! begin and end - the effect removed, the track deleted, the project closed - and
+    //! leaving the count raised would defer this instance's notifications for the rest of
+    //! the session, so its editor would quietly stop updating.
     EffectInstance* instance = instancesRegister()->instanceById(instanceId).get();
-    if (!instance) {
-        return;
-    }
 
-    const EffectId effectId = instancesRegister()->effectIdByInstanceId(instanceId);
-    const EffectFamily family = getEffectFamily(effectId);
+    if (instance) {
+        const EffectId effectId = instancesRegister()->effectIdByInstanceId(instanceId);
+        const EffectFamily family = getEffectFamily(effectId);
 
-    IParameterExtractorService* extractor = parameterExtractorRegistry()
-                                            ? parameterExtractorRegistry()->extractorForFamily(family)
-                                            : nullptr;
-    if (extractor) {
-        extractor->endParameterGesture(instance, parameterId);
+        IParameterExtractorService* extractor = parameterExtractorRegistry()
+                                                ? parameterExtractorRegistry()->extractorForFamily(family)
+                                                : nullptr;
+        if (extractor) {
+            extractor->endParameterGesture(instance, parameterId);
+        }
     }
 
     //! Announce only once the last gesture on this instance has closed, so a batch that
-    //! brackets several parameters reports one change rather than one per value. Counted
-    //! down even when there is no extractor, so a missing one cannot strand the count.
+    //! brackets several parameters reports one change rather than one per value.
     auto open = m_openGestures.find(instanceId);
-    if (open != m_openGestures.end() && --open->second <= 0) {
-        m_openGestures.erase(open);
+    if (open == m_openGestures.end()) {
+        return;
+    }
 
-        auto pending = m_deferredNotify.find(instanceId);
-        if (pending != m_deferredNotify.end()) {
-            const String changed = pending->second;
-            m_deferredNotify.erase(pending);
-            notifyParameterChanged(instanceId, changed);
-        }
+    if (--open->second > 0) {
+        return;
+    }
+
+    m_openGestures.erase(open);
+
+    auto pending = m_deferredNotify.find(instanceId);
+    if (pending == m_deferredNotify.end()) {
+        return;
+    }
+
+    const String changed = pending->second;
+    m_deferredNotify.erase(pending);
+
+    //! Both entries are cleared either way; the announcement itself only makes sense
+    //! while there is still an instance to read the value back from.
+    if (instance) {
+        notifyParameterChanged(instanceId, changed);
     }
 }
 
