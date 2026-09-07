@@ -3140,6 +3140,11 @@ Response AudacityCommandsController::handleListEffectParameters(const Request& r
         obj["name"] = p.name.toStdString();
         obj["units"] = p.units.toStdString();
         obj["type"] = parameterTypeToString(p.type);
+        //! Says how the value is quantised - 0 continuous, 1 a toggle, more than that a
+        //! discrete control with that many steps. Without it a caller cannot tell a
+        //! continuous parameter from a stepped one, which is what decides whether an
+        //! arbitrary value in [min, max] is meaningful or gets snapped.
+        obj["stepCount"] = p.stepCount;
         obj["minValue"] = p.minValue;
         obj["maxValue"] = p.maxValue;
         obj["defaultValue"] = p.defaultValue;

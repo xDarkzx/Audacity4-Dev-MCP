@@ -38,8 +38,15 @@ ParamType getParameterType(const Steinberg::Vst::ParameterInfo& info)
         return ParamType::ReadOnly;
     }
 
-    // Check if it's a list/dropdown parameter
-    if (info.flags & Steinberg::Vst::ParameterInfo::kIsList) {
+    // Check if it's a list/dropdown parameter.
+    //
+    // kIsList alone is not enough: a list has to have steps for there to be anything to
+    // list, and some plug-ins set the flag on continuous controls too, where stepCount is
+    // 0. FabFilter Pro-Q 3 reports 124 of its 492 parameters that way, including every
+    // band's Frequency, Gain and Q - all of them continuous. Trusting the flag on its own
+    // presents those as dropdowns with no entries, since getEnumValues() below rightly
+    // refuses to invent any for a parameter with no steps.
+    if ((info.flags & Steinberg::Vst::ParameterInfo::kIsList) && info.stepCount > 1) {
         return ParamType::Dropdown;
     }
 
@@ -103,7 +110,7 @@ ParamInfo buildParamInfo(Steinberg::Vst::IEditController* editController,
     // Basic info
     paramInfo.id = vstInfo.id;
     paramInfo.name = VST3Utils::UTF16ToStdString(vstInfo.title);
-    paramInfo.units = VST3Utils::GetParameterUnitStdString(editController, vstInfo);
+    paramInfo.units = VST3Utils::GetParameterUnitStdString(vstInfo);
 
     // Type and flags
     paramInfo.type = getParameterType(vstInfo);

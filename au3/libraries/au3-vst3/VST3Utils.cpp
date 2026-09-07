@@ -105,8 +105,7 @@ std::string VST3Utils::UTF16ToStdString(const Steinberg::Vst::TChar* str)
     return ToWxString(str).ToStdString();
 }
 
-std::string VST3Utils::GetParameterUnitStdString(Steinberg::Vst::IEditController* controller,
-                                                 const Steinberg::Vst::ParameterInfo& info)
+std::string VST3Utils::GetParameterUnitStdString(const Steinberg::Vst::ParameterInfo& info)
 {
     // Check the units field in parameter info first (simpler and more reliable)
     try {
@@ -120,22 +119,14 @@ std::string VST3Utils::GetParameterUnitStdString(Steinberg::Vst::IEditController
         // and don't affect functionality (we just won't display units)
     }
 
-    // Try to get unit info if the controller supports it
-    try {
-        auto unitInfo = Steinberg::FUnknownPtr<Steinberg::Vst::IUnitInfo>(controller);
-        if (unitInfo && info.unitId != Steinberg::Vst::kRootUnitId) {
-            Steinberg::Vst::UnitInfo uInfo;
-            if (unitInfo->getUnitInfo(info.unitId, uInfo) == Steinberg::kResultOk) {
-                // Check if there's a unit name
-                if (uInfo.name[0] != 0) {
-                    return UTF16ToStdString(uInfo.name);
-                }
-            }
-        }
-    } catch (...) {
-        // Silently ignore - same as above
-    }
-
+    // No IUnitInfo fallback here. A VST3 "unit" is a grouping of parameters - a node in
+    // the plug-in's parameter tree - not a unit of measurement, and its name reads as one
+    // only by coincidence. Falling back to it reported FabFilter Pro-Q 3's per-band
+    // Frequency as being measured in "Band 1", and Pro-Q 3's analyser parameters as being
+    // measured in "Analyzer".
+    //
+    // ParameterInfo::units is the only place the format carries a measurement unit. When a
+    // plug-in leaves it empty it is saying it has none, and reporting nothing is right.
     return std::string();
 }
 
