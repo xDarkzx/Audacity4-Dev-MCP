@@ -26,7 +26,11 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
+#include <system_error>
+#include <vector>
 
 #include "global/serialization/json.h"
 #include "trackedit/itrackeditproject.h"
@@ -611,6 +615,109 @@ static double toFiniteDouble(const muse::Val& value)
         throw std::invalid_argument("value must be a finite number");
     }
     return parsed;
+}
+
+//! Directories a command should never be able to read from or write to.
+//! Computed once; the environment is not expected to move underneath a session.
+static const std::vector<std::string>& blockedPathRoots()
+{
+    static const std::vector<std::string> roots = []() {
+        std::vector<std::string> result;
+        auto addIfSet = [&result](const char* var, const char* fallback) {
+            //! getenv races with setenv from another thread, but this runs once inside
+            //! a function-local static, on the main thread, before any request can be
+            //! served, and nothing here mutates the environment. This module has no Qt
+            //! includes, so the thread-safe Qt equivalent would mean taking on that
+            //! dependency for a single call.
+            //! NOLINTNEXTLINE(concurrency-mt-unsafe)
+            const char* value = std::getenv(var);
+            const std::string dir = (value && *value) ? std::string(value) : std::string(fallback);
+            std::error_code ec;
+            const std::filesystem::path canonical = std::filesystem::weakly_canonical(std::filesystem::path(dir), ec);
+            result.push_back(ec ? dir : canonical.string());
+        };
+//! _WIN32 rather than Q_OS_WIN: this module has no Qt includes of its own, so
+//! Q_OS_WIN would only reach here transitively. If that ever stopped, the Windows
+//! branch would quietly stop compiling and leave no blocked directories at all -
+//! a guard that fails open without saying so. _WIN32 comes from the compiler.
+#ifdef _WIN32
+        addIfSet("WINDIR", "C:\\Windows");
+        addIfSet("PROGRAMFILES", "C:\\Program Files");
+        addIfSet("ProgramFiles(x86)", "C:\\Program Files (x86)");
+#else
+        //! /var is deliberately absent: on macOS it is a symlink to /private/var,
+        //! which is also where the real temp directory lives, so blocking it would
+        //! block every legitimate temp-file write on macOS too.
+        for (const char* dir : { "/System", "/Library", "/usr", "/bin", "/sbin", "/etc" }) {
+            std::error_code ec;
+            if (std::filesystem::is_directory(std::filesystem::path(dir), ec)) {
+                result.push_back(dir);
+            }
+        }
+#endif
+        return result;
+    }();
+    return roots;
+}
+
+static std::string toComparablePath(std::string path)
+{
+#ifdef _WIN32
+    //! Windows paths are case-insensitive, so the comparison has to be too, or
+    //! "c:\\windows\\..." would walk straight past a block on "C:\\Windows".
+    std::transform(path.begin(), path.end(), path.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::replace(path.begin(), path.end(), '/', '\\');
+#endif
+    return path;
+}
+
+//! Validates a filesystem path supplied by a caller, writing the resolved path to
+//! `resolved`. Returns an empty string when the path is acceptable, otherwise the
+//! reason it is not.
+//!
+//! These checks also exist in the Python server, but existing there alone meant
+//! they were advisory: the bridge speaks a plain line protocol, so anything that
+//! can authenticate can call these commands directly and skip that layer entirely.
+//! A guard that only the well-behaved client applies is not a guard.
+static std::string validateCallerPath(const std::string& path, std::string& resolved)
+{
+    if (path.empty()) {
+        return "Missing required 'path' argument";
+    }
+    if (path.find('\0') != std::string::npos) {
+        //! A null byte truncates the path in any C API it reaches, so what was
+        //! checked here would not be what actually gets opened.
+        return "Path must not contain a null byte";
+    }
+
+    std::error_code ec;
+    const std::filesystem::path given(path);
+    if (!given.is_absolute()) {
+        return "Path must be absolute";
+    }
+
+    //! weakly_canonical rather than canonical: export and save-as name files that
+    //! do not exist yet, which canonical() refuses outright. This still resolves
+    //! ".." and any symlinks along the existing part of the path, so a path cannot
+    //! reach a blocked directory by going around it.
+    const std::filesystem::path canonical = std::filesystem::weakly_canonical(given, ec);
+    resolved = ec ? given.lexically_normal().string() : canonical.string();
+
+    const std::string comparable = toComparablePath(resolved);
+    for (const std::string& root : blockedPathRoots()) {
+        const std::string blocked = toComparablePath(root);
+        if (blocked.empty()) {
+            continue;
+        }
+        //! Compared against the directory plus a separator, so a sibling whose name
+        //! merely starts the same way - "/usrlocal" against "/usr" - is not caught.
+        const std::string prefix = blocked + static_cast<char>(std::filesystem::path::preferred_separator);
+        if (comparable == blocked || comparable.rfind(prefix, 0) == 0) {
+            return "Refusing to use a system directory: " + root;
+        }
+    }
+    return {};
 }
 
 static au::trackedit::LabelKey parseLabelKey(const std::string& key)
@@ -1270,9 +1377,12 @@ Response AudacityCommandsController::handleExportWav(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IExporter not available")));
     }
 
-    std::string path = request.query.param("path").toString();
-    if (path.empty()) {
-        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    std::string path;
+    {
+        const std::string rejection = validateCallerPath(request.query.param("path").toString(), path);
+        if (!rejection.empty()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, rejection));
+        }
     }
 
     //! NOTE Refuse to silently overwrite an existing file by default - this command
@@ -2426,9 +2536,12 @@ Response AudacityCommandsController::handleProjectOpen(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IProjectFilesController not available")));
     }
 
-    std::string path = request.query.param("path").toString();
-    if (path.empty()) {
-        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    std::string path;
+    {
+        const std::string rejection = validateCallerPath(request.query.param("path").toString(), path);
+        if (!rejection.empty()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, rejection));
+        }
     }
 
     muse::io::path_t projectPath(path);
@@ -2446,9 +2559,12 @@ Response AudacityCommandsController::handleProjectImport(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IImporter not available")));
     }
 
-    std::string path = request.query.param("path").toString();
-    if (path.empty()) {
-        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    std::string path;
+    {
+        const std::string rejection = validateCallerPath(request.query.param("path").toString(), path);
+        if (!rejection.empty()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, rejection));
+        }
     }
 
     bool ok = importer()->import(muse::io::path_t(path));
@@ -2502,9 +2618,12 @@ Response AudacityCommandsController::handleProjectSaveAs(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IProjectFilesController not available")));
     }
 
-    std::string path = request.query.param("path").toString();
-    if (path.empty()) {
-        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    std::string path;
+    {
+        const std::string rejection = validateCallerPath(request.query.param("path").toString(), path);
+        if (!rejection.empty()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, rejection));
+        }
     }
 
     stopPlaybackIfRunning();
@@ -2523,9 +2642,12 @@ Response AudacityCommandsController::handleProjectExport(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IExporter not available")));
     }
 
-    std::string path = request.query.param("path").toString();
-    if (path.empty()) {
-        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("Missing required 'path' argument")));
+    std::string path;
+    {
+        const std::string rejection = validateCallerPath(request.query.param("path").toString(), path);
+        if (!rejection.empty()) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, rejection));
+        }
     }
 
     bool overwrite = request.query.param("overwrite").toBool();
