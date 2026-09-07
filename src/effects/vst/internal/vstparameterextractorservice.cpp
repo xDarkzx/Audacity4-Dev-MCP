@@ -183,17 +183,21 @@ bool VstParameterExtractorService::setParameterValue(EffectInstance* instance,
 
     const bool result = VST3ParameterExtraction::setParameterValue(instance, paramId, normalizedValue, settingsAccess.get());
 
-    // Claim the edit into *this* settings object straight away, rather than leaving it in
-    // ComponentHandler's cache until the gesture ends.
+    // Outside a gesture, claim the edit into *this* settings object straight away rather
+    // than leaving it in ComponentHandler's cache.
     //
     // The cache is owned by the wrapper, not by any one EffectSettings, and it is drained by
-    // whichever FetchSettings() runs first. EffectParametersProvider::setParameterValue reads
-    // the parameter back and emits parameterChanged as soon as this returns, and both of those
-    // reach FetchSettings - the read directly, the notification via an open editor's
-    // settingsToView(). Either one moves the edit into a different settings object, and the
-    // store that follows the gesture then finds nothing pending and writes stale state, while
-    // still reporting success. Confirmed live with FabFilter Pro-Q 3 and its editor open.
-    if (result && settingsAccess) {
+    // whichever FetchSettings() runs first. A parameter read reaches FetchSettings directly,
+    // and a settings-changed notification reaches it through an open editor's
+    // settingsToView(); either moves the edit into a different settings object, after which
+    // the store finds nothing pending and writes stale state while still reporting success.
+    //
+    // Within a gesture there is nothing to defend against - EffectParametersProvider holds
+    // its read-back and notification until the gesture closes - so the edits are left to
+    // accumulate and endParameterGesture() commits them together. That keeps a batch to one
+    // settings commit, so a chain cannot be heard passing through half-configured states.
+    const bool inGesture = m_gestureSettings.find(instance) != m_gestureSettings.end();
+    if (result && settingsAccess && !inGesture) {
         VST3ParameterExtraction::flushAndStoreSettings(instance, settingsAccess.get());
     }
 

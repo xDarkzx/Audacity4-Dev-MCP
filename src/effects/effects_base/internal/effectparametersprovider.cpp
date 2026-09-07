@@ -96,19 +96,35 @@ bool EffectParametersProvider::setParameterValue(EffectInstanceId instanceId, co
     const bool success = extractor->setParameterValue(instance, parameterId, fullRangeValue, settingsAccess);
 
     if (success) {
-        // Get the updated parameter info to send plain/"Full Range" value and formatted string
-        const ParameterInfo param = parameter(instanceId, parameterId);
-
-        ParameterChangedData data;
-        data.instanceId = instanceId;
-        data.parameterId = parameterId;
-        data.newFullRangeValue = param.currentValue;
-        data.newValueString = param.currentValueString;
-
-        m_parameterChanged.send(data);
+        //! Reading the parameter back and announcing the change both end up in
+        //! VST3Wrapper::FetchSettings - the read directly, the notification by way of an
+        //! open plug-in editor's settingsToView(). FetchSettings drains the edits the
+        //! extractor is still holding, so doing either one here would discard the rest of
+        //! a batch. Hold both until the gesture closes; a batch then produces one settings
+        //! commit and one notification rather than one of each per value.
+        auto it = m_openGestures.find(instanceId);
+        if (it != m_openGestures.end() && it->second > 0) {
+            m_deferredNotify[instanceId] = parameterId;
+        } else {
+            notifyParameterChanged(instanceId, parameterId);
+        }
     }
 
     return success;
+}
+
+void EffectParametersProvider::notifyParameterChanged(EffectInstanceId instanceId, const String& parameterId)
+{
+    // Get the updated parameter info to send plain/"Full Range" value and formatted string
+    const ParameterInfo param = parameter(instanceId, parameterId);
+
+    ParameterChangedData data;
+    data.instanceId = instanceId;
+    data.parameterId = parameterId;
+    data.newFullRangeValue = param.currentValue;
+    data.newValueString = param.currentValueString;
+
+    m_parameterChanged.send(data);
 }
 
 bool EffectParametersProvider::setParameterStringValue(EffectInstanceId instanceId, const String& parameterId, const String& stringValue)
@@ -202,6 +218,10 @@ void EffectParametersProvider::beginParameterGesture(EffectInstanceId instanceId
         EffectSettingsAccessPtr settingsAccess = instancesRegister()->settingsAccessById(instanceId);
         extractor->beginParameterGesture(instance, parameterId, settingsAccess);
     }
+
+    //! Counted outside the extractor check so that begin and end stay symmetric: an
+    //! unbalanced count would leave notifications deferred forever.
+    ++m_openGestures[instanceId];
 }
 
 void EffectParametersProvider::endParameterGesture(EffectInstanceId instanceId, const String& parameterId)
@@ -219,6 +239,21 @@ void EffectParametersProvider::endParameterGesture(EffectInstanceId instanceId, 
                                             : nullptr;
     if (extractor) {
         extractor->endParameterGesture(instance, parameterId);
+    }
+
+    //! Announce only once the last gesture on this instance has closed, so a batch that
+    //! brackets several parameters reports one change rather than one per value. Counted
+    //! down even when there is no extractor, so a missing one cannot strand the count.
+    auto open = m_openGestures.find(instanceId);
+    if (open != m_openGestures.end() && --open->second <= 0) {
+        m_openGestures.erase(open);
+
+        auto pending = m_deferredNotify.find(instanceId);
+        if (pending != m_deferredNotify.end()) {
+            const String changed = pending->second;
+            m_deferredNotify.erase(pending);
+            notifyParameterChanged(instanceId, changed);
+        }
     }
 }
 
