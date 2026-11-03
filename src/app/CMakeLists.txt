@@ -56,6 +56,10 @@ elseif(OS_IS_LIN)
 
     # $ORIGIN/../lib holds the bundled extdeps libraries (see require_dep).
     set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib;${QT_INSTALL_LIBS}")
+    # libforge-mcp sits in its own "forgeiec" directory (see the top CMakeLists).
+    if (AU_FORGE_MCP_RPATH)
+        set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${AU_FORGE_MCP_RPATH}")
+    endif()
     if (BUILD_SHARED_LIBS)
         set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${SHARED_LIBS_INSTALL_DESTINATION}")
     endif(BUILD_SHARED_LIBS)

@@ -209,11 +209,36 @@ if (MUSE_ENABLE_UNIT_TESTS)
 endif()
 
 add_subdirectory(${MUSE_FRAMEWORK_SRC_PATH})
-# libforge-mcp (ForgeIEC): the MCP server of Audacity (src/mcp). Built from the
-# submodule and installed beside Audacity; OpenSSL comes from the system.
-set(FORGE_MCP_INSTALL_LIBRARY ON CACHE BOOL "" FORCE)
-set(FORGE_MCP_BUNDLE_OPENSSL OFF CACHE BOOL "" FORCE)
-add_subdirectory(thirdparty/forge-mcp)
+# libforge-mcp (ForgeIEC): the MCP server of Audacity (src/mcp).
+# The installed package (forgeiec-libforge-mcp-dev) wins when it is there; else
+# the submodule is built and installed beside Audacity. The library lives in a
+# private "forgeiec" directory, so the app needs that directory in its RPATH:
+# AU_FORGE_MCP_RPATH, used by src/app. Audacity is installed under its own prefix
+# (/opt/audacity4), so for the package it is the absolute directory of the
+# library, not one relative to $ORIGIN.
+set(AU_FORGE_MCP_MIN_VERSION 0.4.0)
+option(AU_USE_SYSTEM_FORGE_MCP "Use an installed libforge-mcp if there is one" ON)
+if (AU_USE_SYSTEM_FORGE_MCP)
+    find_package(forge-mcp ${AU_FORGE_MCP_MIN_VERSION} CONFIG QUIET)
+endif()
+if (forge-mcp_FOUND)
+    get_target_property(_au_fmcp_configs forge-mcp::forge-mcp IMPORTED_CONFIGURATIONS)
+    list(GET _au_fmcp_configs 0 _au_fmcp_config)
+    get_target_property(_au_fmcp_lib forge-mcp::forge-mcp IMPORTED_LOCATION_${_au_fmcp_config})
+    get_filename_component(AU_FORGE_MCP_RPATH "${_au_fmcp_lib}" DIRECTORY)
+    set(AU_FORGE_MCP_FROM_SYSTEM ON)
+    message(STATUS "libforge-mcp: installed package ${forge-mcp_VERSION} (${AU_FORGE_MCP_RPATH})")
+else()
+    include(GNUInstallDirs)
+    set(FORGE_MCP_INSTALL_LIBRARY ON CACHE BOOL "" FORCE)
+    # OpenSSL for certificate generation comes from the distribution; the pinned
+    # build of forge-mcp is meant for its own packages.
+    set(FORGE_MCP_BUNDLE_OPENSSL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(thirdparty/forge-mcp)
+    set(AU_FORGE_MCP_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/forgeiec")
+    set(AU_FORGE_MCP_FROM_SYSTEM OFF)
+    message(STATUS "libforge-mcp: submodule thirdparty/forge-mcp")
+endif()
 
 add_subdirectory(src)
 add_subdirectory(share)
