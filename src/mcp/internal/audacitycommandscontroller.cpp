@@ -1380,9 +1380,22 @@ Response AudacityCommandsController::handleSelectTime(const Request& request)
                                                  std::string("Invalid 'start'/'end' argument - must be numbers: ") + e.what()));
     }
 
-    selectionController()->setSelectedAllAudioData(start, end);
+    //! Keep the track selection (select-tracks before this one): setSelectedAllAudioData
+    //! would select every track, label tracks included, and a following edit such as
+    //! edit-split-delete would then cut through all of them. Only with no track
+    //! selected is there nothing to keep; then the range applies to all tracks.
+    const bool keepTracks = !selectionController()->selectedTracks().empty();
+    if (keepTracks) {
+        selectionController()->resetSelectedClips();
+        selectionController()->resetSelectedLabels();
+        selectionController()->setDataSelectedStartTime(start, true);
+        selectionController()->setDataSelectedEndTime(end, true);
+    } else {
+        selectionController()->setSelectedAllAudioData(start, end);
+    }
 
-    std::string message = "Selected time range " + std::to_string(start) + "-" + std::to_string(end) + "s";
+    std::string message = "Selected time range " + std::to_string(start) + "-" + std::to_string(end) + "s"
+                          + (keepTracks ? " on the selected track(s)" : " on all tracks");
     return make_response(request, make_ret(Ret::Code::Ok, message));
 }
 
@@ -2081,6 +2094,12 @@ Response AudacityCommandsController::handleTrimClip(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, argError));
     }
 
+    //! The operation clamps the delta to the selected labels as well
+    //! (clampBoundaryDeltaToSelectedItems); labels left selected by an earlier
+    //! add-labels must not limit a trim aimed at one clip.
+    if (selectionController()) {
+        selectionController()->resetSelectedLabels();
+    }
     bool ok = side == "left"
               ? trackeditInteraction()->trimClipsLeft({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE)
               : trackeditInteraction()->trimClipsRight({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE);
@@ -2114,6 +2133,9 @@ Response AudacityCommandsController::handleStretchClip(const Request& request)
         return make_response(request, make_ret(Ret::Code::UnknownError, argError));
     }
 
+    if (selectionController()) {
+        selectionController()->resetSelectedLabels(); // see handleTrimClip
+    }
     bool ok = side == "left"
               ? trackeditInteraction()->stretchClipsLeft({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE)
               : trackeditInteraction()->stretchClipsRight({ key }, delta, minDur, true, au::trackedit::UndoPushType::NONE);

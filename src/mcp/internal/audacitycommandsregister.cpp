@@ -210,7 +210,8 @@ static const std::vector<CommandInfo> s_commandInfos = {
     CommandInfo{
         Command("command://mcp/select-time"),
         TranslatableString("mcp", "Select time range"),
-        TranslatableString("mcp", "Set the time selection without changing track selection"),
+        TranslatableString("mcp", "Set the time selection on the selected tracks (select-tracks), keeping the track "
+                                  "selection; with no track selected it applies to all tracks"),
         []() {
             InputSchema schema;
             schema.args["start"] = Arg(DataType::Float, u"Start time in seconds");
