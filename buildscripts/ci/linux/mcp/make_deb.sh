@@ -110,8 +110,9 @@ rm -rf "$WORK"
 
 # A library from the forgeiec directory of an installed package carries no shlibs
 # information, and --ignore-missing-info drops it without a word. Depend on the
-# package that owns it instead.
-FORGEIEC=$(ldd "$BIN" 2>/dev/null | awk '{print $3}' | grep '/forgeiec/' | grep -v "^$ROOT" \
+# package that owns it instead. When the package bundles libforge-mcp itself there
+# is no such library: grep finds nothing, which must not end the script (pipefail).
+FORGEIEC=$(ldd "$BIN" 2>/dev/null | awk '{print $3}' | { grep '/forgeiec/' || true; } | { grep -v "^$ROOT" || true; } \
            | while read -r path; do
                  pkg=$(dpkg -S "$path" 2>/dev/null | cut -d: -f1 | head -1)
                  [ -n "$pkg" ] || continue
