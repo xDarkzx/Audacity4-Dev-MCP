@@ -672,6 +672,29 @@ static const std::vector<CommandInfo> s_commandInfos = {
         Decoration()
     },
     CommandInfo{
+        Command("command://mcp/audio-get-devices"),
+        TranslatableString("mcp", "Get audio devices"),
+        TranslatableString("mcp", "The audio setup: current host (API), playback and recording device, sample rate, "
+                                  "and every host, playback and recording device that can be chosen, with the system defaults"),
+        InputSchema(),
+        Decoration()
+    },
+    CommandInfo{
+        Command("command://mcp/audio-set-device"),
+        TranslatableString("mcp", "Set audio devices"),
+        TranslatableString("mcp", "Change the audio setup like the Audio Setup menu: host (API), playback and/or recording "
+                                  "device. Devices are given by name as audio-get-devices lists them (an unambiguous part of "
+                                  "the name is enough), or \"default\" for the system default. Only the given fields change."),
+        []() {
+            InputSchema schema;
+            schema.args["api"] = Arg(DataType::String, u"Audio host, e.g. \"ALSA\" or \"JACK Audio Connection Kit\"");
+            schema.args["output"] = Arg(DataType::String, u"Playback device name, or \"default\"");
+            schema.args["input"] = Arg(DataType::String, u"Recording device name, or \"default\"");
+            return schema;
+        }(),
+        Decoration()
+    },
+    CommandInfo{
         Command("command://mcp/project-get-metadata"),
         TranslatableString("mcp", "Get project metadata"),
         TranslatableString("mcp", "Get project metadata tags: artist, track title, album, track number, year, comments"),

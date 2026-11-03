@@ -36,6 +36,7 @@
 #include "trackedit/itrackeditproject.h"
 #include "au3-realtime-effects/RealtimeEffectState.h"
 #include "au3-effects/EffectPlugin.h"
+#include "au3-exceptions/AudacityException.h"
 
 using namespace muse;
 using namespace muse::rcommand;
@@ -307,6 +308,12 @@ void AudacityCommandsController::init()
     registerCommand(Command("command://mcp/project-get-info"), [this](const Request& request) {
         return handleProjectGetInfo(request);
     });
+    registerCommand(Command("command://mcp/audio-get-devices"), [this](const Request& request) {
+        return handleAudioGetDevices(request);
+    });
+    registerCommand(Command("command://mcp/audio-set-device"), [this](const Request& request) {
+        return handleAudioSetDevice(request);
+    });
     registerCommand(Command("command://mcp/project-get-metadata"), [this](const Request& request) {
         return handleProjectGetMetadata(request);
     });
@@ -380,6 +387,17 @@ void AudacityCommandsController::registerCommand(const Command& command, const H
             } catch (const std::exception& e) {
                 return make_response(request, make_ret(Ret::Code::UnknownError,
                                                        std::string("Command failed: ") + e.what()));
+            } catch (const MessageBoxException& e) {
+                //! The au3 code reports its own failures (disk full, a project
+                //! database it cannot write, ...) with AudacityException, which is
+                //! not a std::exception. In the GUI a delayed handler shows the
+                //! message; here the client must get it instead of a generic text.
+                return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                       std::string("Command failed: ")
+                                                       + e.ErrorMessage().Translation().ToStdString()));
+            } catch (const AudacityException&) {
+                return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                       std::string("Command failed with an Audacity error (no message)")));
             } catch (...) {
                 return make_response(request, make_ret(Ret::Code::UnknownError,
                                                        std::string("Command failed with an unrecognised error")));
@@ -3698,4 +3716,148 @@ Response AudacityCommandsController::handleApplyEffectPreset(const Request& requ
     }
 
     return make_response(request, make_ret(Ret::Code::Ok, std::string("Applied preset ") + presetId));
+}
+
+// ---------------------------------------------------------------- audio setup
+
+namespace {
+JsonArray toJsonArray(const std::vector<std::string>& values)
+{
+    JsonArray arr;
+    for (const std::string& v : values) {
+        arr << v;
+    }
+    return arr;
+}
+
+const char* applyStatusText(au::audio::ApplyStatus status)
+{
+    using au::audio::ApplyStatus;
+    switch (status) {
+    case ApplyStatus::Applied: return "applied";
+    case ApplyStatus::NoChange: return "no change";
+    case ApplyStatus::InvalidConfiguration: return "invalid configuration";
+    case ApplyStatus::InvalidRouting: return "the device cannot be used with this host";
+    case ApplyStatus::NoUsableAudioApi: return "no usable audio host";
+    case ApplyStatus::NoAsioDevice: return "no ASIO device";
+    case ApplyStatus::OwnerUnavailable: return "the audio engine is not available";
+    case ApplyStatus::Busy: return "the audio engine is busy (stop playback or recording first)";
+    case ApplyStatus::InternalError: break;
+    }
+    return "internal error";
+}
+
+//! A device by name: the exact name, else the one name that contains `wanted`
+//! (case-insensitive). Empty result with `error` set when none or several match.
+std::optional<std::string> matchDevice(const std::vector<std::string>& devices, const std::string& wanted, std::string& error)
+{
+    for (const std::string& d : devices) {
+        if (d == wanted) {
+            return d;
+        }
+    }
+    auto lower = [](std::string v) {
+        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return v;
+    };
+    const std::string w = lower(wanted);
+    std::vector<std::string> hits;
+    for (const std::string& d : devices) {
+        if (lower(d).find(w) != std::string::npos) {
+            hits.push_back(d);
+        }
+    }
+    if (hits.size() == 1) {
+        return hits.front();
+    }
+    error = hits.empty() ? "no device matches \"" + wanted + "\""
+                         : "\"" + wanted + "\" matches " + std::to_string(hits.size()) + " devices - be more specific";
+    return std::nullopt;
+}
+}
+
+Response AudacityCommandsController::handleAudioGetDevices(const Request& request)
+{
+    if (!audioDriverController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IAudioDriverController not available")));
+    }
+    const au::audio::AudioConfiguration cfg = audioDriverController()->configuration();
+    JsonObject output;
+    output["current"] = cfg.outputDevice ? *cfg.outputDevice : std::string("default");
+    output["system_default"] = audioDriverController()->systemDefaultOutputDevice(cfg.api);
+    output["devices"] = toJsonArray(audioDriverController()->outputDevices());
+    JsonObject input;
+    input["current"] = cfg.inputDevice ? *cfg.inputDevice : std::string("default");
+    input["system_default"] = audioDriverController()->systemDefaultInputDevice(cfg.api);
+    input["devices"] = toJsonArray(audioDriverController()->inputDevices());
+    JsonObject obj;
+    obj["api"] = cfg.api;
+    obj["apis"] = toJsonArray(audioDriverController()->apis());
+    obj["output"] = output;
+    obj["input"] = input;
+    obj["input_channels"] = cfg.inputChannels;
+    obj["sample_rate"] = static_cast<double>(cfg.defaultSampleRate);
+    obj["buffer_length_ms"] = cfg.bufferLength;
+
+    Response response = make_response(request, make_ret(Ret::Code::Ok, std::string("audio-get-devices")));
+    response.data = std::string(JsonDocument(obj).toJson(JsonDocument::Format::Compact).constChar());
+    return response;
+}
+
+Response AudacityCommandsController::handleAudioSetDevice(const Request& request)
+{
+    if (!audioDriverController()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError, std::string("IAudioDriverController not available")));
+    }
+    const std::string api = request.query.param("api").toString();
+    const std::string output = request.query.param("output").toString();
+    const std::string input = request.query.param("input").toString();
+    if (api.empty() && output.empty() && input.empty()) {
+        return make_response(request, make_ret(Ret::Code::UnknownError,
+                                                 std::string("Nothing to change - give api, output and/or input")));
+    }
+
+    au::audio::AudioConfigurationChange change;
+    std::string error;
+    if (!api.empty()) {
+        const auto hit = matchDevice(audioDriverController()->apis(), api, error);
+        if (!hit) {
+            return make_response(request, make_ret(Ret::Code::UnknownError, "api: " + error));
+        }
+        change.api = *hit;
+    }
+    //! The device lists belong to a host: with a new host, look the devices up there.
+    const std::string hostForDevices = change.api ? *change.api : audioDriverController()->configuration().api;
+    if (!output.empty()) {
+        if (output == "default") {
+            change.outputDevice = au::audio::AudioDeviceSelection {};
+        } else {
+            const auto hit = matchDevice(audioDriverController()->outputDevices(hostForDevices), output, error);
+            if (!hit) {
+                return make_response(request, make_ret(Ret::Code::UnknownError, "output: " + error));
+            }
+            change.outputDevice = au::audio::AudioDeviceSelection { *hit };
+        }
+    }
+    if (!input.empty()) {
+        if (input == "default") {
+            change.inputDevice = au::audio::AudioDeviceSelection {};
+        } else {
+            const auto hit = matchDevice(audioDriverController()->inputDevices(hostForDevices), input, error);
+            if (!hit) {
+                return make_response(request, make_ret(Ret::Code::UnknownError, "input: " + error));
+            }
+            change.inputDevice = au::audio::AudioDeviceSelection { *hit };
+        }
+    }
+
+    const au::audio::ApplyResult result = audioDriverController()->apply(iocContext(), change);
+    std::string message = std::string("Audio setup: ") + applyStatusText(result.status);
+    if (result.streamRestorationFailed) {
+        message += " (the running stream could not be restored)";
+    }
+    const au::audio::AudioConfiguration cfg = audioDriverController()->configuration();
+    message += " - host " + cfg.api + ", playback " + (cfg.outputDevice ? *cfg.outputDevice : std::string("default"))
+               + ", recording " + (cfg.inputDevice ? *cfg.inputDevice : std::string("default"));
+    return make_response(request, make_ret(result.succeeded() ? Ret::Code::Ok : Ret::Code::UnknownError, message));
 }
