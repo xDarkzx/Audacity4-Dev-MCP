@@ -1,0 +1,41 @@
+# Build environment for the Linux packages of Audacity 4 with the MCP bridge.
+# One file for every target; the base image is chosen with --build-arg BASE_IMAGE.
+#   podman build --build-arg BASE_IMAGE=debian:trixie -t au4-mcp-build:trixie -f Containerfile .
+#   podman build --build-arg BASE_IMAGE=ubuntu:24.04  -t au4-mcp-build:noble  -f Containerfile .
+ARG BASE_IMAGE=debian:trixie
+FROM ${BASE_IMAGE}
+
+ARG QT_VERSION=6.10.1
+ARG QT_MODULES="qt5compat qtnetworkauth qtshadertools qtwebsockets qtgraphs qtquick3d"
+ENV DEBIAN_FRONTEND=noninteractive
+
+# The package lists follow buildscripts/ci/linux/setup.sh (upstream CI on Ubuntu 22.04),
+# plus what that script gets from the GitHub runner image and what packaging and the
+# headless smoke test need.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential g++ cmake ninja-build ccache pkg-config git file \
+      ca-certificates curl wget unzip p7zip-full desktop-file-utils \
+      python3 python3-pip python3-venv \
+      libasound2-dev libfontconfig1-dev libfreetype-dev libgl1-mesa-dev libnss3-dev \
+      libpulse-dev libsndfile1-dev libudev-dev make \
+      libcups2 libdbus-1-3 libegl1-mesa-dev libpq-dev libssl-dev libxcomposite-dev \
+      libxcursor-dev libxi-dev libxkbcommon-x11-0 libxrandr2 libxtst-dev libdrm-dev \
+      libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+      libxcb-xinerama0 libxcb-xkb-dev libxcb-shape0 libxcb-cursor0 libxkbcommon-dev libvulkan-dev \
+      ffmpeg libavcodec-dev libavformat-dev libswscale-dev \
+      libgtk2.0-dev libjack-jackd2-dev gettext uuid-dev xkb-data m4 \
+      dpkg-dev fakeroot patchelf xvfb xauth \
+    && rm -rf /var/lib/apt/lists/*
+
+# Qt from the Qt archive, the same version and modules as the upstream CI
+# (install-qt-action), so both targets build against one Qt.
+RUN python3 -m venv /opt/aqt-venv \
+    && /opt/aqt-venv/bin/pip install --no-cache-dir aqtinstall \
+    && /opt/aqt-venv/bin/aqt install-qt linux desktop ${QT_VERSION} linux_gcc_64 \
+         -m ${QT_MODULES} -O /opt/qt \
+    && rm -rf /opt/aqt-venv aqtinstall.log
+
+ENV QT_DIR=/opt/qt/${QT_VERSION}/gcc_64
+ENV PATH=${QT_DIR}/bin:${PATH} \
+    CMAKE_PREFIX_PATH=${QT_DIR} \
+    CCACHE_DIR=/ccache
