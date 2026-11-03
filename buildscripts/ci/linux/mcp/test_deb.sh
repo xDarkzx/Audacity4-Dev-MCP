@@ -34,6 +34,9 @@ useradd -m smoke
 SLOGS=/home/smoke/logs
 su smoke -s /bin/bash -c "mkdir -p $SLOGS"
 
+# The test's exit code is taken from PIPESTATUS below: do not let errexit end
+# this script before the logs are copied out.
+set +e
 su smoke -s /bin/bash -c "
   set -euo pipefail
   export HOME=/home/smoke
@@ -41,7 +44,9 @@ su smoke -s /bin/bash -c "
   APP=\$!
   PORT=
   for i in \$(seq 1 $WAIT); do
-    INI=\$(find \$HOME/.local/share -name mcp.ini 2>/dev/null | head -1)
+    # Under pipefail a failing find (the directory does not exist before the
+    # first start) would end the script without a word: tolerate it.
+    INI=\$(find \$HOME/.local/share -name mcp.ini 2>/dev/null | head -1 || true)
     [ -n \"\$INI\" ] && PORT=\$(sed -n 's/^port=//p' \"\$INI\" | head -1)
     if (exec 3<>/dev/tcp/127.0.0.1/\${PORT:-7536}) 2>/dev/null; then echo \"MCP server up after \${i}s\"; break; fi
     if ! kill -0 \$APP 2>/dev/null; then echo 'audacity4 exited early'; tail -50 '$SLOGS/audacity4.log'; exit 1; fi
@@ -56,5 +61,6 @@ su smoke -s /bin/bash -c "
   exit \$RC
 " 2>&1 | tee "$LOGS/smoke.log"
 RC=${PIPESTATUS[0]}
+set -e
 cp -r "$SLOGS/." "$LOGS/" 2>/dev/null || true
 exit "$RC"
