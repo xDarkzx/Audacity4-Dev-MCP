@@ -26,6 +26,9 @@ cmake --version | head -1
 
 ccache --zero-stats >/dev/null || true
 
+# MUSE_MODULE_UPDATE=OFF: the package is updated through apt. The built-in check
+# offers the official Audacity, and installing it would replace this build.
+
 cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache \
@@ -36,6 +39,7 @@ cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G Ninja \
     -DMUSE_APP_INSTALL_SUFFIX= \
     -DMUSE_ENABLE_UNIT_TESTS="$UTESTS" \
     -DMUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT=OFF \
+    -DMUSE_MODULE_UPDATE=OFF \
     -DCMAKE_SKIP_RPATH=OFF
 
 ninja -C "$BUILD_DIR" -j "$JOBS"
