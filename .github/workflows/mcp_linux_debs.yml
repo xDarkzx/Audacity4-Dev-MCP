@@ -113,7 +113,7 @@ jobs:
 
       - name: Test the package in a clean trixie
         run: |
-          DEB=$(ls out/*+${TARGET}_amd64.deb)
+          DEB=$(ls out/*+${TARGET}_amd64.deb | grep -v -- -dbgsym_)
           podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src ${BASE_IMAGE} \
             bash $CI_MCP/test_deb.sh "/src/$DEB" /src/logs/${TARGET}
 
