@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libxcb-xinerama0 libxcb-xkb-dev libxcb-shape0 libxcb-cursor0 libxkbcommon-dev libvulkan-dev \
       ffmpeg libavcodec-dev libavformat-dev libswscale-dev \
       libgtk2.0-dev libjack-jackd2-dev gettext uuid-dev xkb-data m4 \
-      dpkg-dev fakeroot \
+      dpkg-dev fakeroot patchelf \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CCACHE_DIR=/ccache
