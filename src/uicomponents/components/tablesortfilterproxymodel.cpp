@@ -66,8 +66,8 @@ void TableSortFilterProxyModel::clearSort()
 
 void TableSortFilterProxyModel::invalidateFilters()
 {
-    beginFilterChange();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    beginFilterChange(); // Qt >= 6.9, paired with endFilterChange() (Qt >= 6.10)
     endFilterChange(QSortFilterProxyModel::Direction::Rows);
 #else
     invalidateFilter();
