@@ -6,12 +6,13 @@
 #   test_deb.sh <deb-file> <log-dir>
 #
 # Environment:
-#   AU4_MCP_CLIENT  pip requirement for the client (default audacity4-mcp==0.1.0)
+#   AU4_MCP_CLIENT  pip requirement for the client (default: a pinned commit of
+#                   xDarkzx/Audacity4-MCP; PyPI 0.1.0 predates the token the bridge requires)
 set -euo pipefail
 
 DEB=${1:?deb file}
 LOGS=${2:?log dir}
-CLIENT=${AU4_MCP_CLIENT:-audacity4-mcp==0.1.0}
+CLIENT=${AU4_MCP_CLIENT:-audacity4-mcp @ git+https://github.com/xDarkzx/Audacity4-MCP@280c7a3f46c19c8686c53a37f788264630aa4b8c}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$LOGS"
 chmod 777 "$LOGS"
@@ -20,7 +21,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 # Only what the test itself needs; everything Audacity needs must come from the
 # Depends of the package.
-apt-get install -y -qq --no-install-recommends xvfb xauth python3 python3-venv ca-certificates >/dev/null
+apt-get install -y -qq --no-install-recommends xvfb xauth python3 python3-venv ca-certificates git >/dev/null
 apt-get install -y --no-install-recommends "$DEB"
 
 echo "== Installed"

@@ -47,6 +47,21 @@ def wav_seconds(path: Path) -> float:
         return w.getnframes() / w.getframerate()
 
 
+def find_token() -> str:
+    """The token the app wrote on start. AUDACITY4_MCP_TOKEN wins, as in the client;
+    otherwise the newest mcp_token below the user's data directory (its sub folder
+    depends on the build mode, e.g. Audacity4 or Audacity4Development)."""
+    env = os.environ.get("AUDACITY4_MCP_TOKEN")
+    if env:
+        return env.strip()
+    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    found = sorted(base.rglob("mcp_token"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not found:
+        raise SystemExit(f"no mcp_token below {base}")
+    step(f"token file: {found[0]}")
+    return found[0].read_text(encoding="utf-8").strip()
+
+
 def list_tools(token: str) -> list[str]:
     """tools/list over the raw protocol (the client only wraps tools/call)."""
     with socket.create_connection(("127.0.0.1", 2212), timeout=30) as s:
@@ -64,9 +79,11 @@ def list_tools(token: str) -> list[str]:
 
 async def main() -> int:
     WORK.mkdir(parents=True, exist_ok=True)
+    token = find_token()
+    # Handed to the client explicitly, so the test does not depend on where a given
+    # client version looks for the file.
+    os.environ["AUDACITY4_MCP_TOKEN"] = token
     client = BridgeClient()
-    token = client._resolve_token()  # same lookup an MCP server does
-    step("token found")
 
     tools = list_tools(token)
     step(f"tools/list: {len(tools)} tools")
