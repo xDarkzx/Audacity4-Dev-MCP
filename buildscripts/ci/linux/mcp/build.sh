@@ -20,7 +20,7 @@ SRC_DIR=$(cd "$(dirname "$0")/../../../.." && pwd)
 echo "== Source:  $SRC_DIR"
 echo "== Build:   $BUILD_DIR"
 echo "== Prefix:  $PREFIX (staged in $STAGE_DIR)"
-echo "== Qt:      ${QT_DIR:-?}"
+echo "== Qt:      $(qtpaths6 --qt-version 2>/dev/null || echo ?)"
 gcc --version | head -1
 cmake --version | head -1
 

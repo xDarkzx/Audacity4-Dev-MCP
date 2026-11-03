@@ -1,34 +1,82 @@
 #!/usr/bin/env python3
-"""End-to-end check of the MCP bridge of a running Audacity 4.
+"""End-to-end check of the MCP server (libforge-mcp) of a running Audacity 4.
 
-Uses the published Python client (pip package "audacity4-mcp", module server4) the
-way an MCP server does, so a pass means: the Linux build starts, the bridge listens on
-127.0.0.1:2212, the token file is found and accepted, and real editing commands work.
+Talks plain MCP over HTTP/JSON-RPC the way an MCP client does, so a pass means:
+the build starts, libforge-mcp listens, the bearer token from mcp.ini is
+accepted, the Audacity commands are offered as tools and really edit a project.
 
-Steps: list the tools, make a test tone as WAV, import it, read the project back,
-export it again and compare the exported file with the original.
-
-Exit code 0 on success; every step prints one line.
+Steps: initialize, tools/list, make a test tone as WAV, import it, read the
+project back, export it again and compare the exported file with the original.
+Only the standard library is used. Exit code 0 on success; one line per step.
 """
-import asyncio
+import configparser
 import json
 import math
 import os
-import socket
 import struct
 import sys
+import time
+import urllib.request
 import wave
 from pathlib import Path
 
-from server4.bridge_client import BridgeClient
-
 WORK = Path(os.environ.get("SMOKE_DIR", Path.home() / "au4-smoke"))
+DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+PORT_DEFAULT = 7536          # McpModuleContext: mcp/port
+SLUG_DEFAULT = "audacity"    # AudacityMcpHost: mcp/access_slug
 RATE = 44100
 SECONDS = 2.0
 
 
 def step(msg: str) -> None:
     print(f"[smoke] {msg}", flush=True)
+
+
+def settings() -> tuple[str, int, str]:
+    """Token, port and slug from the mcp.ini the app wrote on start."""
+    inis = sorted(DATA_HOME.rglob("mcp.ini"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not inis:
+        raise SystemExit(f"no mcp.ini below {DATA_HOME}")
+    cp = configparser.ConfigParser()
+    cp.read(inis[0])
+    token = cp.get("mcp", "access_token", fallback="")
+    if not token:
+        raise SystemExit(f"no mcp/access_token in {inis[0]}")
+    port = cp.getint("mcp", "port", fallback=PORT_DEFAULT)
+    slug = cp.get("mcp", "access_slug", fallback=SLUG_DEFAULT)
+    step(f"settings: {inis[0]} (port {port}, slug {slug})")
+    return token, port, slug
+
+
+class Client:
+    def __init__(self, token: str, port: int, slug: str):
+        self.url = f"http://127.0.0.1:{port}/mcp/v1/{slug}/rpc"
+        self.token = token
+        self.id = 0
+
+    def rpc(self, method: str, params: dict | None = None) -> dict:
+        self.id += 1
+        body = json.dumps({"jsonrpc": "2.0", "id": self.id, "method": method,
+                           "params": params or {}}).encode()
+        req = urllib.request.Request(self.url, data=body, headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "Authorization": f"Bearer {self.token}"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            resp = json.loads(r.read())
+        if "error" in resp:
+            raise SystemExit(f"{method}: {resp['error']}")
+        return resp["result"]
+
+    def call(self, tool: str, args: dict | None = None) -> dict:
+        """tools/call; returns the forge envelope ({ok, data} / {ok, code, message})."""
+        result = self.rpc("tools/call", {"name": tool, "arguments": args or {}})
+        text = "".join(c.get("text", "") for c in result.get("content", []))
+        try:
+            env = json.loads(text)
+        except json.JSONDecodeError:
+            env = {"ok": not result.get("isError", False), "data": text}
+        return env
 
 
 def write_tone(path: Path) -> None:
@@ -47,87 +95,54 @@ def wav_seconds(path: Path) -> float:
         return w.getnframes() / w.getframerate()
 
 
-def find_token() -> str:
-    """The token the app wrote on start. AUDACITY4_MCP_TOKEN wins, as in the client;
-    otherwise the newest mcp_token below the user's data directory (its sub folder
-    depends on the build mode, e.g. Audacity4 or Audacity4Development)."""
-    env = os.environ.get("AUDACITY4_MCP_TOKEN")
-    if env:
-        return env.strip()
-    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    found = sorted(base.rglob("mcp_token"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not found:
-        raise SystemExit(f"no mcp_token below {base}")
-    step(f"token file: {found[0]}")
-    return found[0].read_text(encoding="utf-8").strip()
+def expect_ok(name: str, env: dict) -> dict:
+    step(f"{name}: {json.dumps(env)[:240]}")
+    if not env.get("ok"):
+        raise SystemExit(f"{name} failed")
+    return env.get("data") or {}
 
 
-def list_tools(token: str) -> list[str]:
-    """tools/list over the raw protocol (the client only wraps tools/call)."""
-    with socket.create_connection(("127.0.0.1", 2212), timeout=30) as s:
-        s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
-                               "token": token, "params": {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = s.recv(65536)
-            if not chunk:
-                break
-            buf += chunk
-    resp = json.loads(buf)
-    return [t["name"] for t in resp["result"]["tools"]]
-
-
-async def main() -> int:
+def main() -> int:
     WORK.mkdir(parents=True, exist_ok=True)
-    token = find_token()
-    # Handed to the client explicitly, so the test does not depend on where a given
-    # client version looks for the file.
-    os.environ["AUDACITY4_MCP_TOKEN"] = token
-    client = BridgeClient()
+    c = Client(*settings())
 
-    tools = list_tools(token)
-    step(f"tools/list: {len(tools)} tools")
-    for needed in ("mcp_project-import", "mcp_export-wav", "mcp_project-get-info"):
-        if needed not in tools:
+    init = c.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                "clientInfo": {"name": "au4-smoke", "version": "1"}})
+    step(f"initialize: {json.dumps(init.get('serverInfo'))}")
+
+    names = [t["name"] for t in c.rpc("tools/list")["tools"]]
+    step(f"tools/list: {len(names)} tools, {sum(n.startswith('mcp_') for n in names)} Audacity commands")
+    for needed in ("mcp_project-import", "mcp_export-wav", "mcp_project-get-info", "mcp_select-all"):
+        if needed not in names:
             raise SystemExit(f"tool missing: {needed}")
 
-    src = WORK / "tone-in.wav"
-    out = WORK / "tone-out.wav"
+    src, out = WORK / "tone-in.wav", WORK / "tone-out.wav"
     write_tone(src)
     out.unlink(missing_ok=True)
 
-    try:
-        await client.call("project-new", {})
-        step("project-new: ok")
-    except RuntimeError as e:  # a project may already be open after start
-        step(f"project-new: {e} (continuing with the open project)")
+    expect_ok("project-import", c.call("mcp_project-import", {"path": str(src)}))
+    info = expect_ok("project-get-info", c.call("mcp_project-get-info"))
+    duration = (info.get("result") or {}).get("durationSec")
+    if duration is not None and abs(float(duration) - SECONDS) > 0.05:
+        raise SystemExit(f"project duration {duration} s after import, expected {SECONDS} s")
 
-    res = await client.call("project-import", {"path": str(src)})
-    step(f"project-import: {json.dumps(res)[:200]}")
-
-    info = await client.call("project-get-info", {})
-    step(f"project-get-info: {json.dumps(info)[:300]}")
-
-    await client.call("select-all", {})
-    res = await client.call("export-wav", {"path": str(out), "overwrite": True})
-    step(f"export-wav: {json.dumps(res)[:200]}")
+    expect_ok("select-all", c.call("mcp_select-all"))
+    expect_ok("export-wav", c.call("mcp_export-wav", {"path": str(out), "overwrite": True}))
 
     for _ in range(60):
         if out.exists() and out.stat().st_size > 44:
             break
-        await asyncio.sleep(0.5)
+        time.sleep(0.5)
     if not out.exists():
         raise SystemExit("export-wav reported success but no file was written")
-
     got = wav_seconds(out)
     step(f"exported {out} ({got:.3f} s, expected {SECONDS:.3f} s)")
     if abs(got - SECONDS) > 0.05:
         raise SystemExit("exported length does not match the imported tone")
 
-    await client.close()
     step("PASS")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(main())

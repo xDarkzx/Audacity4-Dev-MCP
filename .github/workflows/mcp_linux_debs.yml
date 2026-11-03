@@ -1,19 +1,19 @@
-name: "[MCP] Linux: build, test, DEBs"
+name: "[MCP] Linux: build, test, DEB (trixie)"
 
-# Proof that the Audacity 4 MCP fork builds and works on Linux, and packages for
-# Debian 13 (trixie) and Ubuntu 24.04 (noble). Runs on a self-hosted runner with
-# rootless podman; every step happens in a container, the runner only needs podman.
+# Proof that Audacity 4 with the MCP server (libforge-mcp, thirdparty/forge-mcp)
+# builds and works on Debian 13 against the Qt the distribution ships (6.8), and
+# the package for it. Runs on a self-hosted runner with rootless podman; every
+# step happens in a container, the runner only needs podman.
 #
-# Per target:
-#   1. build image (Containerfile: distro packages + Qt 6.10.1 from the Qt archive)
+#   1. build image (Containerfile: Debian packages incl. the system Qt)
 #   2. configure, build, unit tests (ctest, including src/mcp/tests), install
-#   3. DEB with bundled Qt under /opt/audacity4
-#   4. install the DEB into a clean base image and drive it through the MCP bridge
-#      with the published Python client (buildscripts/ci/linux/mcp/smoke_test.py)
+#   3. DEB under /opt/audacity4, depending on the distribution's Qt packages
+#   4. install the DEB into a clean debian:trixie and drive the running app
+#      through MCP over HTTP (buildscripts/ci/linux/mcp/smoke_test.py)
 #
-# The DEBs stay on the runner host (DEB_STORE, default ~/au4-mcp-debs of the runner user) and are attached to a GitHub release
-# for tags v*; only logs and test reports are uploaded as artifacts, so the small
-# artifact quota of a private repository is not used up by 300 MB packages.
+# The DEB stays on the runner host (DEB_STORE, default ~/au4-mcp-debs of the
+# runner user) and is attached to a GitHub release for tags v*; only logs and
+# test reports are uploaded as artifacts.
 
 on:
   push:
@@ -33,16 +33,12 @@ env:
 
 jobs:
   linux:
-    name: ${{ matrix.target }}
+    name: trixie
     runs-on: [ self-hosted, audacity4-builder ]
     timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        include:
-          - { target: trixie, base: "docker.io/library/debian:trixie" }
-          - { target: noble,  base: "docker.io/library/ubuntu:24.04" }
+    env:
+      TARGET: trixie
+      BASE_IMAGE: docker.io/library/debian:trixie
     steps:
       - name: Runner environment
         run: |
@@ -69,49 +65,48 @@ jobs:
       - name: Build image
         run: |
           podman build --pull=newer \
-            --build-arg BASE_IMAGE=${{ matrix.base }} \
-            -t au4-mcp-build:${{ matrix.target }} \
+            --build-arg BASE_IMAGE=${BASE_IMAGE} \
+            -t au4-mcp-build:${TARGET} \
             -f $CI_MCP/Containerfile $CI_MCP
 
       - name: Build and unit tests
         run: |
-          mkdir -p "$CACHE_ROOT/ccache-${{ matrix.target }}"
+          mkdir -p "$CACHE_ROOT/ccache-${TARGET}"
           podman run --rm \
             -v "$GITHUB_WORKSPACE:/src" \
-            -v "$CACHE_ROOT/ccache-${{ matrix.target }}:/ccache" \
+            -v "$CACHE_ROOT/ccache-${TARGET}:/ccache" \
             -e CCACHE_MAXSIZE=25G -e AU4_JOBS \
-            -w /src au4-mcp-build:${{ matrix.target }} \
-            $CI_MCP/build.sh /src/build-${{ matrix.target }} /src/stage-${{ matrix.target }}
+            -w /src au4-mcp-build:${TARGET} \
+            $CI_MCP/build.sh /src/build-${TARGET} /src/stage-${TARGET}
 
       - name: Package
         run: |
-          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src au4-mcp-build:${{ matrix.target }} \
-            $CI_MCP/make_deb.sh /src/stage-${{ matrix.target }} /src/out \
-              ${{ matrix.target }} ${{ steps.ver.outputs.version }}
+          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src au4-mcp-build:${TARGET} \
+            $CI_MCP/make_deb.sh /src/stage-${TARGET} /src/out ${{ steps.ver.outputs.version }}
 
-      - name: Test the package in a clean ${{ matrix.target }}
+      - name: Test the package in a clean trixie
         run: |
-          DEB=$(ls out/*+${{ matrix.target }}_amd64.deb)
-          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src ${{ matrix.base }} \
-            bash $CI_MCP/test_deb.sh "/src/$DEB" /src/logs/${{ matrix.target }}
+          DEB=$(ls out/*+${TARGET}_amd64.deb)
+          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src ${BASE_IMAGE} \
+            bash $CI_MCP/test_deb.sh "/src/$DEB" /src/logs/${TARGET}
 
       - name: Keep the package on the runner
         if: success()
         run: |
           dest="$DEB_STORE/${{ steps.ver.outputs.version }}"
           mkdir -p "$dest"
-          cp out/*+${{ matrix.target }}_amd64.deb "$dest/"
+          cp out/*+${TARGET}_amd64.deb "$dest/"
           ls -la "$dest"
 
       - name: Upload logs and test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-${{ matrix.target }}
+          name: logs-trixie
           path: |
-            logs/${{ matrix.target }}/
-            build-${{ matrix.target }}/ctest-junit.xml
-            build-${{ matrix.target }}/Testing/Temporary/LastTest.log
+            logs/${{ env.TARGET }}/
+            build-${{ env.TARGET }}/ctest-junit.xml
+            build-${{ env.TARGET }}/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
           retention-days: 14
 
@@ -123,8 +118,8 @@ jobs:
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
             gh release create "$GITHUB_REF_NAME" --prerelease --title "$GITHUB_REF_NAME" \
               --notes "Audacity 4 with the MCP bridge, built and tested on Linux by CI."
-          gh release upload "$GITHUB_REF_NAME" out/*+${{ matrix.target }}_amd64.deb --clobber
+          gh release upload "$GITHUB_REF_NAME" out/*+${TARGET}_amd64.deb --clobber
 
       - name: Clean up large build output
         if: always()
-        run: rm -rf stage-${{ matrix.target }} out
+        run: rm -rf stage-${TARGET} out
