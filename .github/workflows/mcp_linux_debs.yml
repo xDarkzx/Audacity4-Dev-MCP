@@ -2,8 +2,12 @@ name: "[MCP] Linux: build, test, DEB (trixie)"
 
 # Proof that Audacity 4 with the MCP server (libforge-mcp, thirdparty/forge-mcp)
 # builds and works on Debian 13 against the Qt the distribution ships (6.8), and
-# the package for it. Runs on a self-hosted runner with rootless podman; every
-# step happens in a container, the runner only needs podman.
+# the package for it. Every step happens in a podman container, the runner only
+# needs podman:
+#   - repository variable AU4_RUNS_ON set (JSON, e.g. ["self-hosted","audacity4-builder"]):
+#     that runner, with a persistent ccache
+#   - not set (a fork, a fresh clone): GitHub's ubuntu-24.04 runner
+# So anyone can build the package in a fork with nothing but GitHub Actions.
 #
 #   1. build image (Containerfile: Debian packages incl. the system Qt)
 #   2. configure, build, unit tests (ctest, including src/mcp/tests), install
@@ -11,15 +15,18 @@ name: "[MCP] Linux: build, test, DEB (trixie)"
 #   4. install the DEB into a clean debian:trixie and drive the running app
 #      through MCP over HTTP (buildscripts/ci/linux/mcp/smoke_test.py)
 #
-# The DEB stays on the runner host (DEB_STORE, default ~/au4-mcp-debs of the
-# runner user) and is attached to a GitHub release for tags v*; only logs and
-# test reports are uploaded as artifacts.
+# The packages (audacity4-mcp and audacity4-mcp-dbgsym) are uploaded as
+# artifacts and, for tags v*, attached to a GitHub release. On a self-hosted
+# runner they are also kept in DEB_STORE (default ~/au4-mcp-debs).
 
 on:
   push:
     branches: [ "ci/linux-debs", "feature/mcp-*" ]
     tags: [ "v*" ]
   workflow_dispatch:
+
+permissions:
+  contents: write   # the release step for tags v*
 
 concurrency:
   group: mcp-linux-${{ github.ref }}
@@ -29,13 +36,13 @@ env:
   CI_MCP: buildscripts/ci/linux/mcp
   # Parallel compile jobs; each heavy translation unit can take 1-2 GB of RAM.
   # Repository variable AU4_JOBS overrides it.
-  AU4_JOBS: ${{ vars.AU4_JOBS || '12' }}
+  AU4_JOBS: ${{ vars.AU4_JOBS || '' }}
 
 jobs:
   linux:
     name: trixie
-    runs-on: [ self-hosted, audacity4-builder ]
-    timeout-minutes: 240
+    runs-on: ${{ fromJSON(vars.AU4_RUNS_ON || '"ubuntu-24.04"') }}
+    timeout-minutes: 340
     env:
       TARGET: trixie
       BASE_IMAGE: docker.io/library/debian:trixie
@@ -48,6 +55,22 @@ jobs:
           echo "DEB_STORE=${{ vars.AU4_DEB_STORE || '' }}" | sed "s|=$|=$HOME/au4-mcp-debs|" >> "$GITHUB_ENV"
           podman --version
           free -g | head -2
+          df -h "$HOME" | tail -1
+
+      - name: Free disk space (GitHub-hosted runner)
+        if: runner.environment == 'github-hosted'
+        run: |
+          # The build needs about 30 GB; the image ships SDKs this job never uses.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h / | tail -1
+
+      - name: ccache (GitHub-hosted runner)
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CACHE_ROOT }}/ccache-trixie
+          key: ccache-trixie-${{ github.sha }}
+          restore-keys: ccache-trixie-
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,7 +98,7 @@ jobs:
           podman run --rm \
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$CACHE_ROOT/ccache-${TARGET}:/ccache" \
-            -e CCACHE_MAXSIZE=25G -e AU4_JOBS \
+            -e CCACHE_MAXSIZE=${{ runner.environment == 'github-hosted' && '5G' || '25G' }} -e AU4_JOBS \
             -w /src au4-mcp-build:${TARGET} \
             $CI_MCP/build.sh /src/build-${TARGET} /src/stage-${TARGET}
 
@@ -90,13 +113,21 @@ jobs:
           podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src ${BASE_IMAGE} \
             bash $CI_MCP/test_deb.sh "/src/$DEB" /src/logs/${TARGET}
 
-      - name: Keep the package on the runner
-        if: success()
+      - name: Keep the packages on the runner
+        if: success() && runner.environment == 'self-hosted'
         run: |
           dest="$DEB_STORE/${{ steps.ver.outputs.version }}"
           mkdir -p "$dest"
-          cp out/*+${TARGET}_amd64.deb "$dest/"
+          cp out/*.deb "$dest/"
           ls -la "$dest"
+
+      - name: Upload packages
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debs-trixie
+          path: out/*.deb
+          retention-days: 30
 
       - name: Upload logs and test reports
         if: always()
@@ -117,8 +148,8 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
             gh release create "$GITHUB_REF_NAME" --prerelease --title "$GITHUB_REF_NAME" \
-              --notes "Audacity 4 with the MCP bridge, built and tested on Linux by CI."
-          gh release upload "$GITHUB_REF_NAME" out/*+${TARGET}_amd64.deb --clobber
+              --notes-file "$CI_MCP/RELEASE_NOTES.md"
+          gh release upload "$GITHUB_REF_NAME" out/*.deb --clobber
 
       - name: Clean up large build output
         if: always()
