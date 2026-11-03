@@ -29,6 +29,7 @@
 #include "internal/audacitymcphost.h"
 
 #include <QSettings>
+#include <QFile>
 #include <QThread>
 
 #include "FMcpServer.h"
@@ -137,6 +138,13 @@ void McpModuleContext::startMcpServer()
 
     m_mcpHost = std::make_unique<AudacityMcpHost>(iocContext());
     AudacityMcpHost::accessToken(); // created on first start, so clients can be set up
+    //! The file holds the bearer token: whoever can read it can drive Audacity.
+    //! QSettings creates it with the umask (usually 0644), so restrict it to the
+    //! owner, as the TCP bridge did for its token file.
+    mcpSettings()->sync();
+    if (!QFile::setPermissions(iniPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        LOGW() << "could not restrict the permissions of " << iniPath.toStdString();
+    }
 
     m_mcpThread = new QThread();
     m_mcpThread->setObjectName("mcp-server");

@@ -12,7 +12,7 @@ over MCP). Each entry: what happens, cause, state.
 | 5 | mcp | `project-get-info` lists label tracks only as `labelTrackCount`. | by design |
 | 6 | mcp | `add-label-track` reported failure once (project restored from an unsaved session); not reproducible in a fresh project. | watch |
 | 7 | mcp | `select-time` ("without changing track selection") called setSelectedAllAudioData and selected every track; a following `edit-split-delete` cut all tracks, labels included. | fixed: keeps the selected tracks |
-| 8 | mcp / forge | `mcp.ini` with the bearer token is created world-readable (0644). | open |
+| 8 | mcp / forge | `mcp.ini` with the bearer token was created world-readable (0644). | fixed: 0600 after start |
 | 9 | mcp / forge | The server instructions sent to clients are the ForgeIEC (PLC/fieldbus) text, not Audacity's `instructions()`. | open |
 | 10 | Qt 6.8 | File dialog: `Interactive::selectOpeningFilesSync` "Not supported", the QML fallback sets `selectExisting`, which Qt 6.8's FileDialog does not have; hidden folders cannot be reached. | open |
 | 11 | Qt 6.8 | `LegacyTreeView.qml`: `ReferenceError: __listView is not defined`, `__currentRow`. | open |
