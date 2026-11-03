@@ -95,7 +95,11 @@ jobs:
       - name: Build and unit tests
         run: |
           mkdir -p "$CACHE_ROOT/ccache-${TARGET}"
-          podman run --rm \
+          # As the runner's own user, not as root: some unit tests lock files
+          # (chmod) and expect them to stay unreadable, which root ignores
+          # (Project_Audacity4ProjectTests.Load_FileCannotBeOpened_ReturnsCantOpen
+          # then hangs until the ctest timeout).
+          podman run --rm --userns=keep-id -e HOME=/tmp \
             -v "$GITHUB_WORKSPACE:/src" \
             -v "$CACHE_ROOT/ccache-${TARGET}:/ccache" \
             -e CCACHE_MAXSIZE=${{ runner.environment == 'github-hosted' && '5G' || '25G' }} -e AU4_JOBS \
@@ -104,7 +108,7 @@ jobs:
 
       - name: Package
         run: |
-          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src au4-mcp-build:${TARGET} \
+          podman run --rm --userns=keep-id -e HOME=/tmp -v "$GITHUB_WORKSPACE:/src" -w /src au4-mcp-build:${TARGET} \
             $CI_MCP/make_deb.sh /src/stage-${TARGET} /src/out ${{ steps.ver.outputs.version }}
 
       - name: Test the package in a clean trixie
