@@ -26,8 +26,12 @@
 
 #include "modularity/imodulesetup.h"
 
+class FMcpServer;
+class QThread;
+
 namespace au::mcp {
 class AudacityCommandsController;
+class AudacityMcpHost;
 
 class McpModule : public muse::modularity::IModuleSetup
 {
@@ -40,16 +44,24 @@ public:
 class McpModuleContext : public muse::modularity::IContextSetup
 {
 public:
-    McpModuleContext(const muse::modularity::ContextPtr& ctx)
-        : muse::modularity::IContextSetup(ctx) {}
+    McpModuleContext(const muse::modularity::ContextPtr& ctx);
+    ~McpModuleContext() override;
 
     void registerExports() override;
     void onInit(const muse::IApplication::RunMode& mode) override;
     void onDeinit() override;
 
 private:
+    void startMcpServer();
+    void stopMcpServer();
+
     std::shared_ptr<AudacityCommandsController> m_commandsController;
     bool m_initialized = false;
+
+    //! libforge-mcp: HTTP/SSE MCP server on a worker thread, tools from the host.
+    std::unique_ptr<AudacityMcpHost> m_mcpHost;
+    FMcpServer* m_mcpServer = nullptr;
+    QThread* m_mcpThread = nullptr;
 };
 }
 

@@ -13,7 +13,6 @@
 #include "framework/draw/drawmodule.h"
 #include "framework/actions/actionsmodule.h"
 #include "framework/rcommand/rcommandmodule.h"
-#include "framework/rcontrol/rcontrolmodule.h"
 #include "framework/audioplugins/audiopluginsmodule.h"
 #include "framework/interactive/interactivemodule.h"
 #include "framework/ui/uimodule.h"
@@ -140,7 +139,7 @@ std::shared_ptr<muse::IApplication> AppFactory::newGuiApp(const std::shared_ptr<
     app->addModule(new muse::audioplugins::AudioPluginsModule());
     app->addModule(new muse::actions::ActionsModule());
     app->addModule(new muse::rcommand::RCommandModule());
-    app->addModule(new muse::rcontrol::RControlModule());
+    // The MCP server is libforge-mcp in src/mcp; muse::rcontrol (TCP bridge) is not used.
     app->addModule(new muse::draw::DrawModule());
     app->addModule(new muse::workspace::WorkspaceModule());
     app->addModule(new muse::accessibility::AccessibilityModule());

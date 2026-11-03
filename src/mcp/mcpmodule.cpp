@@ -26,16 +26,40 @@
 
 #include "internal/audacitycommandsregister.h"
 #include "internal/audacitycommandscontroller.h"
+#include "internal/audacitymcphost.h"
+
+#include <QSettings>
+#include <QThread>
+
+#include "FMcpServer.h"
+#include "FMcpSettings.h"
+
+#include "global/iglobalconfiguration.h"
+#include "log.h"
 
 using namespace au::mcp;
 using namespace muse::modularity;
 
 static const std::string mname("mcp");
 
+// Settings of the MCP server, kept in <user app data>/mcp.ini through the
+// forge-mcp settings (gSetting). The defaults live here and nowhere else.
+static const QString MCP_ENABLED_KEY = QStringLiteral("mcp/enabled");
+static constexpr bool MCP_ENABLED_DEFAULT = true;
+static const QString MCP_PORT_KEY = QStringLiteral("mcp/port");
+static constexpr int MCP_PORT_DEFAULT = 7536;   // ForgeIEC editors use 7531-7534
+
 std::string McpModule::moduleName() const
 {
     return mname;
 }
+
+McpModuleContext::McpModuleContext(const muse::modularity::ContextPtr& ctx)
+    : muse::modularity::IContextSetup(ctx)
+{
+}
+
+McpModuleContext::~McpModuleContext() = default;
 
 IContextSetup* McpModule::newContext(const muse::modularity::ContextPtr& ctx) const
 {
@@ -89,6 +113,63 @@ void McpModuleContext::onInit(const muse::IApplication::RunMode& mode)
 
     //! Also records that *this* context owns the registration - see onDeinit().
     m_initialized = true;
+
+    //! The server belongs to the context that registered the commands: its
+    //! dispatcher is the one their handlers listen on.
+    startMcpServer();
+}
+
+void McpModuleContext::startMcpServer()
+{
+    auto globalConfiguration = globalIoc()->resolve<muse::IGlobalConfiguration>(mname);
+    if (!globalConfiguration) {
+        return;
+    }
+    const QString iniPath = (globalConfiguration->userAppDataPath() + "/mcp.ini").toQString();
+    setMcpSettings(new QSettings(iniPath, QSettings::IniFormat));
+    setMcpBrand(QStringLiteral("Audacity"));
+
+    if (!gSetting(MCP_ENABLED_KEY, MCP_ENABLED_DEFAULT).toBool()) {
+        LOGI() << "MCP server disabled (" << MCP_ENABLED_KEY.toStdString() << " in " << iniPath.toStdString() << ")";
+        return;
+    }
+    const int port = gSetting(MCP_PORT_KEY, MCP_PORT_DEFAULT).toInt();
+
+    m_mcpHost = std::make_unique<AudacityMcpHost>(iocContext());
+    AudacityMcpHost::accessToken(); // created on first start, so clients can be set up
+
+    m_mcpThread = new QThread();
+    m_mcpThread->setObjectName("mcp-server");
+    m_mcpServer = new FMcpServer(m_mcpHost.get()); // no parent: moved to the worker thread
+    QObject::connect(m_mcpServer, &FMcpServer::errorOccurred, [](const QString& why) {
+        LOGE() << "MCP server: " << why.toStdString();
+    });
+    m_mcpServer->moveToThread(m_mcpThread);
+    m_mcpThread->start();
+
+    FMcpServer* server = m_mcpServer;
+    QMetaObject::invokeMethod(server, [server, port, iniPath] {
+        if (server->start(static_cast<quint16>(port))) {
+            LOGI() << "MCP server listening on port " << port << " (settings: " << iniPath.toStdString() << ")";
+        } else {
+            LOGE() << "MCP server failed to start on port " << port;
+        }
+    }, Qt::QueuedConnection);
+}
+
+void McpModuleContext::stopMcpServer()
+{
+    if (!m_mcpThread) {
+        return;
+    }
+    FMcpServer* server = m_mcpServer;
+    QMetaObject::invokeMethod(server, [server] { delete server; }, Qt::BlockingQueuedConnection);
+    m_mcpServer = nullptr;
+    m_mcpThread->quit();
+    m_mcpThread->wait();
+    delete m_mcpThread;
+    m_mcpThread = nullptr;
+    m_mcpHost.reset();
 }
 
 void McpModuleContext::onDeinit()
@@ -99,6 +180,8 @@ void McpModuleContext::onDeinit()
     if (!m_initialized) {
         return;
     }
+
+    stopMcpServer();
 
     auto commandsRegister = globalIoc()->resolve<muse::rcommand::ICommandsRegister>(mname);
     if (commandsRegister) {

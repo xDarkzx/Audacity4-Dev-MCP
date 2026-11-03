@@ -209,6 +209,12 @@ if (MUSE_ENABLE_UNIT_TESTS)
 endif()
 
 add_subdirectory(${MUSE_FRAMEWORK_SRC_PATH})
+# libforge-mcp (ForgeIEC): the MCP server of Audacity (src/mcp). Built from the
+# submodule and installed beside Audacity; OpenSSL comes from the system.
+set(FORGE_MCP_INSTALL_LIBRARY ON CACHE BOOL "" FORCE)
+set(FORGE_MCP_BUNDLE_OPENSSL OFF CACHE BOOL "" FORCE)
+add_subdirectory(thirdparty/forge-mcp)
+
 add_subdirectory(src)
 add_subdirectory(share)
 
