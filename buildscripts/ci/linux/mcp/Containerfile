@@ -1,0 +1,50 @@
+# Build environment for the Debian package of Audacity 4 with the MCP server
+# (libforge-mcp). Debian 13 only, against the Qt the distribution ships (6.8).
+#   podman build -t au4-mcp-build:trixie -f Containerfile .
+ARG BASE_IMAGE=docker.io/library/debian:trixie
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# The package lists follow buildscripts/ci/linux/setup.sh (upstream CI), with the
+# Qt of the distribution instead of the Qt archive, plus what libforge-mcp,
+# packaging and the headless smoke test need.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential g++ cmake ninja-build ccache pkg-config git file \
+      ca-certificates curl wget unzip p7zip-full desktop-file-utils \
+      python3 \
+      qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-declarative-private-dev \
+      qt6-5compat-dev qt6-shadertools-dev qt6-quick3d-dev qt6-graphs-dev qt6-multimedia-dev \
+      qt6-networkauth-dev qt6-websockets-dev qt6-svg-dev qt6-tools-dev qt6-l10n-tools \
+      qml6-module-qt5compat-graphicaleffects qml6-module-qtgraphs qml6-module-qtquick3d \
+      libssl-dev zlib1g-dev openssl \
+      libasound2-dev libfontconfig1-dev libfreetype-dev libgl1-mesa-dev libnss3-dev \
+      libpulse-dev libsndfile1-dev libudev-dev make \
+      libcups2 libdbus-1-3 libegl1-mesa-dev libpq-dev libxcomposite-dev \
+      libxcursor-dev libxi-dev libxkbcommon-x11-0 libxrandr2 libxtst-dev libdrm-dev \
+      libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+      libxcb-xinerama0 libxcb-xkb-dev libxcb-shape0 libxcb-cursor0 libxkbcommon-dev libvulkan-dev \
+      ffmpeg libavcodec-dev libavformat-dev libswscale-dev \
+      libgtk2.0-dev libjack-jackd2-dev gettext uuid-dev xkb-data m4 \
+      dpkg-dev fakeroot patchelf \
+    && rm -rf /var/lib/apt/lists/*
+
+# libforge-mcp comes from its own packages (forgeiec-libforge-mcp-dev): the build
+# links against it and the DEB then depends on forgeiec-libforge-mcp0 instead of
+# bundling a copy. The library lives in the private directory
+# /usr/lib/<multiarch>/forgeiec, which is not on the loader path; CMake puts that
+# directory into the RPATH of the app (AU_FORGE_MCP_RPATH).
+# FORGEIEC_MCP_VERSION only invalidates this layer when a new version is published.
+ARG FORGEIEC_APT=https://apt.forgeiec.io
+ARG FORGEIEC_SUITE=trixie
+ARG FORGEIEC_MCP_VERSION=
+RUN install -d /etc/apt/keyrings \
+    && curl -fsSL "${FORGEIEC_APT}/forgeiec.gpg" -o /etc/apt/keyrings/forgeiec.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/forgeiec.gpg] ${FORGEIEC_APT}/${FORGEIEC_SUITE} ${FORGEIEC_SUITE} main" \
+       > /etc/apt/sources.list.d/forgeiec.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       "forgeiec-libforge-mcp-dev${FORGEIEC_MCP_VERSION:+=$FORGEIEC_MCP_VERSION}" \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CCACHE_DIR=/ccache

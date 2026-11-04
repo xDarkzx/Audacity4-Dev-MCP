@@ -1,6 +1,11 @@
 [submodule "muse"]
 	path = muse
-	url = https://github.com/xDarkzx/muse_framework.git
+	url = https://github.com/Beerlesklopfer/muse_framework.git
+	branch = linux/qt68
 [submodule "muse_deps"]
 	path = muse_deps
 	url = https://github.com/musescore/muse_deps.git
+[submodule "thirdparty/forge-mcp"]
+	path = thirdparty/forge-mcp
+	url = https://git.forgeiec.io/ForgeIEC/forge-mcp.git
+	branch = main

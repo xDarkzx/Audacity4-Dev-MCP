@@ -141,7 +141,13 @@ if (NOT OS_IS_MAC)
     )
 
     # we use QKeyMapper to fix https://github.com/musescore/MuseScore/issues/10181
-    find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+    # Qt 6.9 split the private modules into components of their own; before that
+    # Qt6::GuiPrivate is defined by the Gui package (Debian 13 ships Qt 6.8).
+    if (Qt6_VERSION VERSION_GREATER_EQUAL 6.9)
+        find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+    else()
+        find_package(Qt6 REQUIRED COMPONENTS Gui)
+    endif()
     target_link_libraries(appshell_qml PRIVATE Qt6::GuiPrivate)
 endif(NOT OS_IS_MAC)
 

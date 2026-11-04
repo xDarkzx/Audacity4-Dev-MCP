@@ -188,7 +188,7 @@ void CustomFFmpegPreferencesModel::locateFFmpegLibrary()
 #endif
     muse::io::path_t directory = interactive()->selectOpeningFileSync(muse::qtrc("preferences",
                                                                                  "Locate %1").arg(
-                                                                          libFileName).toStdString(), initialPath, { filter });
+                                                                          QString::fromStdString(libFileName)).toStdString(), initialPath, { filter });
 
     if (directory.empty()) {
         return;

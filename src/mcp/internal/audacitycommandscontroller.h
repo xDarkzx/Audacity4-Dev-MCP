@@ -46,6 +46,7 @@
 #include "playback/itrackplaybackcontrol.h"
 #include "framework/global/io/ifilesystem.h"
 #include "project/imetadata.h"
+#include "audio/driver/iaudiodrivercontroller.h"
 
 namespace au::mcp {
 struct CommandHistoryEntry {
@@ -78,6 +79,7 @@ public:
     muse::ContextInject<au::playback::ITrackPlaybackControl> trackPlaybackControl { this };
     muse::GlobalInject<muse::io::IFileSystem> fileSystem;
     muse::ContextInject<au::project::IMetadata> metadata { this };
+    muse::GlobalInject<au::audio::IAudioDriverController> audioDriverController;
 
     AudacityCommandsController(const muse::modularity::ContextPtr& ctx)
         : muse::Contextable(ctx) {}
@@ -168,6 +170,8 @@ private:
     muse::rcommand::Response handleCursorSet(const muse::rcommand::Request& request);
 
     muse::rcommand::Response handleProjectGetInfo(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleAudioGetDevices(const muse::rcommand::Request& request);
+    muse::rcommand::Response handleAudioSetDevice(const muse::rcommand::Request& request);
     muse::rcommand::Response handleTrackGetInfo(const muse::rcommand::Request& request);
     muse::rcommand::Response handleSelectClip(const muse::rcommand::Request& request);
     muse::rcommand::Response handleTransportGetPlayPosition(const muse::rcommand::Request& request);
