@@ -17,3 +17,5 @@ over MCP). Each entry: what happens, cause, state.
 | 10 | Qt 6.8 | File dialog: `Interactive::selectOpeningFilesSync` "Not supported", the QML fallback sets `selectExisting`, which Qt 6.8's FileDialog does not have; hidden folders cannot be reached. | open |
 | 11 | Qt 6.8 | `LegacyTreeView.qml`: `ReferenceError: __listView is not defined`, `__currentRow`. | open |
 | 12 | mcp | No command for the audio setup; a playback device bound to raw hardware (hw:x,y) fails while PipeWire holds it. | fixed: audio-get-devices / audio-set-device |
+| 13 | mcp / project | Closing a project over MCP crashed the app once (SIGSEGV); not reproducible in an isolated instance, a later session under gdb ended normally. | watch |
+| 14 | mcp | `apply-effect`: Nyquist choice parameters must be given by name (`TYPE=SCurveDown UNITS=dB`); a numeric index is silently ignored. | open |
