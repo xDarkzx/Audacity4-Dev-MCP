@@ -29,4 +29,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       dpkg-dev fakeroot patchelf \
     && rm -rf /var/lib/apt/lists/*
 
+# libforge-mcp comes from its own packages (forgeiec-libforge-mcp-dev): the build
+# links against it and the DEB then depends on forgeiec-libforge-mcp0 instead of
+# bundling a copy. The library lives in the private directory
+# /usr/lib/<multiarch>/forgeiec, which is not on the loader path; CMake puts that
+# directory into the RPATH of the app (AU_FORGE_MCP_RPATH).
+# FORGEIEC_MCP_VERSION only invalidates this layer when a new version is published.
+ARG FORGEIEC_APT=https://apt.forgeiec.io
+ARG FORGEIEC_SUITE=trixie
+ARG FORGEIEC_MCP_VERSION=
+RUN install -d /etc/apt/keyrings \
+    && curl -fsSL "${FORGEIEC_APT}/forgeiec.gpg" -o /etc/apt/keyrings/forgeiec.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/forgeiec.gpg] ${FORGEIEC_APT}/${FORGEIEC_SUITE} ${FORGEIEC_SUITE} main" \
+       > /etc/apt/sources.list.d/forgeiec.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       "forgeiec-libforge-mcp-dev${FORGEIEC_MCP_VERSION:+=$FORGEIEC_MCP_VERSION}" \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV CCACHE_DIR=/ccache

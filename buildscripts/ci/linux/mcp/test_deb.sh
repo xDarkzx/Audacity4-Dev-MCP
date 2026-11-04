@@ -8,6 +8,9 @@
 #
 # Environment:
 #   AU4_SMOKE_WAIT  seconds to wait for the MCP port (default 180)
+#   FORGEIEC_APT    apt repository of the forgeiec packages (libforge-mcp), which
+#                   the package depends on (default https://apt.forgeiec.io)
+#   FORGEIEC_SUITE  its suite (default trixie)
 set -euo pipefail
 
 DEB=${1:?deb file}
@@ -17,6 +20,15 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$LOGS"
 
 export DEBIAN_FRONTEND=noninteractive
+FORGEIEC_APT=${FORGEIEC_APT:-https://apt.forgeiec.io}
+FORGEIEC_SUITE=${FORGEIEC_SUITE:-trixie}
+apt-get update -qq
+apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+# The package depends on forgeiec-libforge-mcp0, published in the forgeiec repository.
+install -d /etc/apt/keyrings
+curl -fsSL "$FORGEIEC_APT/forgeiec.gpg" -o /etc/apt/keyrings/forgeiec.gpg
+echo "deb [signed-by=/etc/apt/keyrings/forgeiec.gpg] $FORGEIEC_APT/$FORGEIEC_SUITE $FORGEIEC_SUITE main" \
+  > /etc/apt/sources.list.d/forgeiec.list
 apt-get update -qq
 # Only what the test itself needs; everything Audacity needs must come from the
 # Depends of the package.
@@ -26,6 +38,10 @@ apt-get install -y --no-install-recommends "$DEB"
 echo "== Installed"
 dpkg -s audacity4-mcp | sed -n '1,12p'
 command -v audacity4
+# libforge-mcp must come from forgeiec-libforge-mcp0, found through the RPATH.
+APPBIN=$(readlink -f "$(command -v audacity4)")
+ldd "$APPBIN" | grep 'libforge-mcp'
+if ldd "$APPBIN" | grep -q 'libforge-mcp.*not found'; then echo 'libforge-mcp not found'; exit 1; fi
 
 # Audacity runs as an ordinary user: settings and token live in that user's home.
 useradd -m smoke

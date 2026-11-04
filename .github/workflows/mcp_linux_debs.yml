@@ -15,15 +15,25 @@ name: "[MCP] Linux: build, test, DEB (trixie)"
 #   4. install the DEB into a clean debian:trixie and drive the running app
 #      through MCP over HTTP (buildscripts/ci/linux/mcp/smoke_test.py)
 #
+# libforge-mcp is not bundled: the build uses forgeiec-libforge-mcp-dev from the
+# forgeiec apt repository, the package depends on forgeiec-libforge-mcp0 and finds
+# the library through its RPATH (/usr/lib/<multiarch>/forgeiec is private).
+#
 # The packages (audacity4-mcp and audacity4-mcp-dbgsym) are uploaded as
 # artifacts and, for tags v*, attached to a GitHub release. On a self-hosted
-# runner they are also kept in DEB_STORE (default ~/au4-mcp-debs).
+# runner they are also kept in DEB_STORE (default ~/au4-mcp-debs). For tags v*
+# or a manual run with "publish" they go into the forgeiec apt repository.
 
 on:
   push:
     branches: [ "ci/linux-debs", "feature/mcp-*" ]
     tags: [ "v*" ]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the packages to the apt repository"
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # the release step for tags v*
@@ -37,6 +47,9 @@ env:
   # Parallel compile jobs; each heavy translation unit can take 1-2 GB of RAM.
   # Repository variable AU4_JOBS overrides it.
   AU4_JOBS: ${{ vars.AU4_JOBS || '' }}
+  # apt repository of the forgeiec packages: libforge-mcp comes from there, and the
+  # package is published there (suite = TARGET).
+  FORGEIEC_APT: ${{ vars.AU4_FORGEIEC_APT || 'https://apt.forgeiec.io' }}
 
 jobs:
   linux:
@@ -87,8 +100,16 @@ jobs:
 
       - name: Build image
         run: |
+          # The version of libforge-mcp in the repository: a new one rebuilds the
+          # image layer that installs it.
+          FMCP=$(curl -fsSL "$FORGEIEC_APT/$TARGET/dists/$TARGET/main/binary-amd64/Packages" \
+                 | awk '/^Package: /{p=$2} /^Version: /{if (p=="forgeiec-libforge-mcp-dev") print $2}' \
+                 | sort -V | tail -1)
+          echo "forgeiec-libforge-mcp-dev $FMCP"
           podman build --pull=newer \
             --build-arg BASE_IMAGE=${BASE_IMAGE} \
+            --build-arg FORGEIEC_APT=$FORGEIEC_APT --build-arg FORGEIEC_SUITE=$TARGET \
+            --build-arg FORGEIEC_MCP_VERSION=$FMCP \
             -t au4-mcp-build:${TARGET} \
             -f $CI_MCP/Containerfile $CI_MCP
 
@@ -110,11 +131,19 @@ jobs:
         run: |
           podman run --rm --userns=keep-id -e HOME=/tmp -v "$GITHUB_WORKSPACE:/src" -w /src au4-mcp-build:${TARGET} \
             $CI_MCP/make_deb.sh /src/stage-${TARGET} /src/out ${{ steps.ver.outputs.version }}
+          # libforge-mcp is a dependency, not part of the package.
+          DEB=$(ls out/*+${TARGET}_amd64.deb | grep -v -- -dbgsym_)
+          dpkg-deb -f "$DEB" Depends | tr ',' '\n' | grep -q 'forgeiec-libforge-mcp0' \
+            || { echo "ERROR: $DEB does not depend on forgeiec-libforge-mcp0"; exit 1; }
+          if dpkg-deb -c "$DEB" | grep -q 'libforge-mcp\.so'; then
+            echo "ERROR: $DEB bundles libforge-mcp (built from the submodule?)"; exit 1
+          fi
 
       - name: Test the package in a clean trixie
         run: |
           DEB=$(ls out/*+${TARGET}_amd64.deb | grep -v -- -dbgsym_)
-          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src ${BASE_IMAGE} \
+          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
+            -e FORGEIEC_APT -e FORGEIEC_SUITE=${TARGET} ${BASE_IMAGE} \
             bash $CI_MCP/test_deb.sh "/src/$DEB" /src/logs/${TARGET}
 
       - name: Keep the packages on the runner
@@ -132,6 +161,37 @@ jobs:
           name: debs-trixie
           path: out/*.deb
           retention-days: 30
+
+      # Publish into the forgeiec apt repository (the suite of TARGET), the same
+      # way libforge-mcp does it: upload into aptly's incoming directory over SSH
+      # with the runner's deploy key, then import. Only for tags v* or a manual
+      # run with "publish", and only where the repository variables
+      # AU4_APT_DEPLOY_HOST (user@host) and AU4_APT_DEPLOY_KEY (key file on the
+      # runner) are set; a fork without them skips this step.
+      - name: Publish to the apt repository
+        if: >-
+          success() && vars.AU4_APT_DEPLOY_HOST != '' &&
+          (startsWith(github.ref, 'refs/tags/v') || inputs.publish)
+        env:
+          APT_HOST: ${{ vars.AU4_APT_DEPLOY_HOST }}
+          KEYFILE: ${{ vars.AU4_APT_DEPLOY_KEY }}
+          INCOMING: ${{ vars.AU4_APT_INCOMING || '/var/lib/aptly/incoming' }}
+          IMPORT: ${{ vars.AU4_APT_IMPORT || 'sudo -u aptly /var/lib/aptly/bin/aptly-import.sh' }}
+        run: |
+          set -euo pipefail
+          [ -r "$KEYFILE" ] || { echo "ERROR: deploy key $KEYFILE not readable"; exit 1; }
+          SSH_OPTS="-i $KEYFILE -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o BatchMode=yes"
+          DIR="$INCOMING/$TARGET"
+          ssh $SSH_OPTS "$APT_HOST" "mkdir -p '$DIR'"
+          # Upload as .part and rename: other jobs import from the same incoming
+          # directory and must never pick up a half-written file.
+          for f in out/*.deb; do
+            base=$(basename "$f")
+            scp $SSH_OPTS "$f" "$APT_HOST:$DIR/$base.part"
+            ssh $SSH_OPTS "$APT_HOST" "mv -f '$DIR/$base.part' '$DIR/$base'"
+          done
+          ssh $SSH_OPTS "$APT_HOST" "$IMPORT"
+          echo "Published to $FORGEIEC_APT/$TARGET"
 
       - name: Upload logs and test reports
         if: always()
