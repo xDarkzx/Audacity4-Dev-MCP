@@ -32,6 +32,8 @@ class QThread;
 namespace au::mcp {
 class AudacityCommandsController;
 class AudacityMcpHost;
+class McpChatController;
+class McpUiActions;
 
 class McpModule : public muse::modularity::IModuleSetup
 {
@@ -62,6 +64,10 @@ private:
     std::unique_ptr<AudacityMcpHost> m_mcpHost;
     FMcpServer* m_mcpServer = nullptr;
     QThread* m_mcpThread = nullptr;
+
+    //! The chat window (libforge-mcp's agent chat) and its menu action.
+    std::shared_ptr<McpChatController> m_chatController;
+    std::shared_ptr<McpUiActions> m_uiActions;
 };
 }
 

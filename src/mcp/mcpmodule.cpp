@@ -27,6 +27,8 @@
 #include "internal/audacitycommandsregister.h"
 #include "internal/audacitycommandscontroller.h"
 #include "internal/audacitymcphost.h"
+#include "internal/mcpchatcontroller.h"
+#include "internal/mcpuiactions.h"
 
 #include <QSettings>
 #include <QFile>
@@ -36,6 +38,7 @@
 #include "FMcpSettings.h"
 
 #include "global/iglobalconfiguration.h"
+#include "ui/iuiactionsregister.h"
 #include "log.h"
 
 using namespace au::mcp;
@@ -70,6 +73,8 @@ IContextSetup* McpModule::newContext(const muse::modularity::ContextPtr& ctx) co
 void McpModuleContext::registerExports()
 {
     m_commandsController = std::make_shared<AudacityCommandsController>(iocContext());
+    m_chatController = std::make_shared<McpChatController>(iocContext());
+    m_uiActions = std::make_shared<McpUiActions>();
 }
 
 void McpModuleContext::onInit(const muse::IApplication::RunMode& mode)
@@ -118,6 +123,12 @@ void McpModuleContext::onInit(const muse::IApplication::RunMode& mode)
     //! The server belongs to the context that registered the commands: its
     //! dispatcher is the one their handlers listen on.
     startMcpServer();
+
+    //! The chat calls the same tools in-process; without a server it is a plain chat.
+    m_chatController->init(m_mcpServer, m_mcpHost ? m_mcpHost->instructions() : QString());
+    if (auto ar = ioc()->resolve<muse::ui::IUiActionsRegister>(mname)) {
+        ar->reg(m_uiActions);
+    }
 }
 
 void McpModuleContext::startMcpServer()
@@ -189,6 +200,8 @@ void McpModuleContext::onDeinit()
         return;
     }
 
+    //! The chat holds the server; it goes first.
+    m_chatController->deinit();
     stopMcpServer();
 
     auto commandsRegister = globalIoc()->resolve<muse::rcommand::ICommandsRegister>(mname);

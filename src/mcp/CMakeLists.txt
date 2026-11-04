@@ -23,7 +23,7 @@ declare_module(mcp)
 # Needed for au3-realtime-effects/RealtimeEffectState.h (RealtimeEffectState::GetInstance(),
 # used to resolve an EffectInstanceId for the parameter-tweaking commands) - matches how
 # effects/effects_base links it for the same header.
-set(MODULE_LINK au3wrap forge-mcp::forge-mcp)
+set(MODULE_LINK au3wrap forge-mcp::forge-mcp Qt::Widgets)
 
 set(MODULE_SRC
     ${CMAKE_CURRENT_LIST_DIR}/mcpmodule.cpp
@@ -34,6 +34,10 @@ set(MODULE_SRC
     ${CMAKE_CURRENT_LIST_DIR}/internal/audacitycommandscontroller.h
     ${CMAKE_CURRENT_LIST_DIR}/internal/audacitymcphost.cpp
     ${CMAKE_CURRENT_LIST_DIR}/internal/audacitymcphost.h
+    ${CMAKE_CURRENT_LIST_DIR}/internal/mcpchatcontroller.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/internal/mcpchatcontroller.h
+    ${CMAKE_CURRENT_LIST_DIR}/internal/mcpuiactions.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/internal/mcpuiactions.h
     )
 
 # audacitycommandscontroller.cpp pulls in au3-realtime-effects/RealtimeEffectState.h

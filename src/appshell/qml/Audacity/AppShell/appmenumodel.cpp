@@ -926,6 +926,7 @@ MenuItemList AppMenuModel::makeToolItems()
 {
     MenuItemList items {
         makeMenuItem("plugin-manager"),
+        makeMenuItem("mcp-chat"),
         makeSeparator(),
         // makeMenuItem("manage-macros"),
         // makeMenu(TranslatableString("appshell-menu-macros", "&Macros"), makeMacrosItems(), "menu-macros", false),

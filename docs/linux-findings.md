@@ -19,3 +19,4 @@ over MCP). Each entry: what happens, cause, state.
 | 12 | mcp | No command for the audio setup; a playback device bound to raw hardware (hw:x,y) fails while PipeWire holds it. | fixed: audio-get-devices / audio-set-device |
 | 13 | mcp / project | Closing a project over MCP crashed the app once (SIGSEGV); not reproducible in an isolated instance, a later session under gdb ended normally. | watch |
 | 14 | mcp | `apply-effect`: Nyquist choice parameters must be given by name (`TYPE=SCurveDown UNITS=dB`); a numeric index is silently ignored. | open |
+| 15 | forge / chat | The in-process chat named `forge_help` in its compact tool set and prompt; in Audacity the help is `audacity_help`, so the model had no map and guessed tool names. Also all-or-nothing: over the budget no tool was listed directly. | fixed in libforge-mcp (branch chat/werkzeugplan): tool plan, help name from the server, plan reported on connect |
